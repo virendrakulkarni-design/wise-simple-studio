@@ -57,6 +57,8 @@ const STUDIO_DURATIONS = [
 const S = {
   apiKey: localStorage.getItem('groq-key') || '',
   googleApiKey: localStorage.getItem('google-key') || '',
+  googleClientId: localStorage.getItem('gdrive-client-id') || '',
+  googleDriveConnected: !!localStorage.getItem('gdrive-access-token'),
   availableModels: [...DEFAULT_GROQ_MODELS],
   activeModel: localStorage.getItem('active-model') || 'llama-3.3-70b-versatile',
   modelsLoading: false,
@@ -78,6 +80,9 @@ const S = {
   studioError: '',
   studioLogs: [],
 
+  // Quality Validation Alert
+  qualityAlert: null,
+
   // Interactive Story Player
   studioPlayerActive: true,
   studioPlayerCurrentScene: 0,
@@ -85,6 +90,7 @@ const S = {
   studioPlayerAudioMuted: false,
 
   // Modals
+  historyModal: { open: false, filter: 'all' },
   clipCutModal: { open: false, clipIndex: null },
   exportProgressModal: { open: false, progress: 0, currentScene: 0, totalScenes: 0, statusText: '' },
   lightbox: { open: false, url: '', title: '' }
@@ -117,6 +123,218 @@ function renderMarkdown(str) {
     .replace(/\*(.*?)\*/g, '<em>$1</em>');
 }
 
+// ── Image Quality Validation Gate ─────────────────────────────────────
+function testLowQualityRejection() {
+  S.qualityAlert = {
+    title: 'Low Quality Image Rejected',
+    filename: 'blurry_sample_150x150.jpg',
+    reason: 'Resolution is too low (150x150px). Minimum required character image resolution is 512x512px (file size 8.4 KB < 15 KB). Low-quality images adversely degrade video rendering. Please upload a crisp, high-resolution portrait.'
+  };
+  studioLog('❌ REJECTED low-quality image "blurry_sample_150x150.jpg": Resolution too low (150x150px < 512x512px)');
+  render();
+}
+
+function validateCharacterImage(file) {
+  return new Promise((resolve) => {
+    if (!file.type.startsWith('image/')) {
+      resolve({ valid: false, reason: `File "${file.name}" is not a valid image format.` });
+      return;
+    }
+    // File size check: minimum 15 KB
+    if (file.size < 15 * 1024) {
+      resolve({
+        valid: false,
+        reason: `Image file "${file.name}" is too small (${(file.size / 1024).toFixed(1)} KB). Low quality, pixelated images adversely degrade video rendering. Minimum required file size is 15 KB (recommended > 50 KB).`
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const minDim = 512;
+
+        if (w < minDim || h < minDim) {
+          resolve({
+            valid: false,
+            dataUrl,
+            width: w,
+            height: h,
+            reason: `Resolution is too low (${w}x${h}px). Minimum required character image resolution is ${minDim}x${minDim}px. Low-quality images adversely affect story video rendering. Please upload a crisp, high-resolution portrait.`
+          });
+          return;
+        }
+
+        const ratio = w / h;
+        if (ratio > 3.0 || ratio < 0.33) {
+          resolve({
+            valid: false,
+            dataUrl,
+            width: w,
+            height: h,
+            reason: `Extreme aspect ratio (${w}x${h}px, ratio ${ratio.toFixed(2)}:1). Please provide a standard portrait or character image.`
+          });
+          return;
+        }
+
+        resolve({ valid: true, dataUrl, width: w, height: h });
+      };
+      img.onerror = () => resolve({ valid: false, reason: `Could not decode image "${file.name}".` });
+      img.src = dataUrl;
+    };
+    reader.onerror = () => resolve({ valid: false, reason: 'Failed to read file.' });
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Google Drive & Project History Manager ────────────────────────────
+function getProjectHistory() {
+  return sg('wise-studio-history') || [];
+}
+
+function saveCurrentProjectToHistory() {
+  const history = getProjectHistory();
+  const title = S.studioTopic || 'Untitled Project';
+  const id = 'proj_' + Date.now();
+  const previewThumb = S.studioClips?.[0]?.imageUrl || S.studioCharacters?.[0]?.url || '';
+
+  const projectEntry = {
+    id,
+    title,
+    style: S.studioStyle,
+    duration: S.studioDuration,
+    aspect: S.studioAspect,
+    numScenes: S.studioScript?.scenes?.length || S.studioClips?.length || 0,
+    timestamp: new Date().toISOString(),
+    formattedDate: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
+    previewThumb,
+    source: localStorage.getItem('gdrive-access-token') ? 'drive' : 'local',
+    data: {
+      studioStep: S.studioStep,
+      studioTopic: S.studioTopic,
+      studioStyle: S.studioStyle,
+      studioDuration: S.studioDuration,
+      studioAspect: S.studioAspect,
+      studioScript: S.studioScript,
+      studioPrompts: S.studioPrompts,
+      studioCharacters: S.studioCharacters,
+      studioClips: S.studioClips
+    }
+  };
+
+  history.unshift(projectEntry);
+  if (history.length > 30) history.pop();
+  ss('wise-studio-history', history);
+  studioLog(`Project "${title}" saved to history!`);
+
+  if (localStorage.getItem('gdrive-access-token')) {
+    saveProjectToGoogleDrive(projectEntry);
+  }
+
+  render();
+}
+
+function loadProjectFromHistory(id) {
+  const history = getProjectHistory();
+  const entry = history.find(p => p.id === id);
+  if (!entry || !entry.data) {
+    alert('Project data not found.');
+    return;
+  }
+  Object.assign(S, entry.data);
+  normalizeStudioCharacters();
+  saveStudioState();
+  S.historyModal.open = false;
+  studioLog(`Loaded project "${entry.title}" from history.`);
+  render();
+}
+
+function deleteProjectFromHistory(id) {
+  if (!confirm('Are you sure you want to delete this project from history?')) return;
+  let history = getProjectHistory();
+  history = history.filter(p => p.id !== id);
+  ss('wise-studio-history', history);
+  render();
+}
+
+let gdriveTokenClient = null;
+
+function connectGoogleDrive() {
+  const clientId = S.googleClientId || localStorage.getItem('gdrive-client-id');
+  if (!clientId) {
+    const inputId = prompt('Enter your Google Cloud OAuth Client ID (from Google Cloud Console):', '');
+    if (!inputId) return;
+    S.googleClientId = inputId.trim();
+    localStorage.setItem('gdrive-client-id', S.googleClientId);
+  }
+
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+    alert('Google Identity Services library is loading. Please ensure you have internet access and try again.');
+    return;
+  }
+
+  gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: S.googleClientId,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: async (res) => {
+      if (res && res.access_token) {
+        localStorage.setItem('gdrive-access-token', res.access_token);
+        S.googleDriveConnected = true;
+        studioLog('✓ Google Drive connected successfully!');
+        saveCurrentProjectToHistory();
+        render();
+      }
+    }
+  });
+
+  gdriveTokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function saveProjectToGoogleDrive(projectEntry) {
+  const token = localStorage.getItem('gdrive-access-token');
+  if (!token) return;
+
+  try {
+    studioLog('Syncing project package to Google Drive...');
+    const filename = `wise_studio_${(projectEntry.title || 'project').replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+    const metadata = {
+      name: filename,
+      mimeType: 'application/json',
+      description: 'Wise Simple Studio AI Story & Video Project'
+    };
+
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', new Blob([JSON.stringify(projectEntry, null, 2)], { type: 'application/json' }));
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: form
+    });
+
+    if (res.ok) {
+      const driveFile = await res.json();
+      projectEntry.source = 'drive';
+      projectEntry.driveFileId = driveFile.id;
+      const history = getProjectHistory();
+      const idx = history.findIndex(p => p.id === projectEntry.id);
+      if (idx !== -1) {
+        history[idx] = projectEntry;
+        ss('wise-studio-history', history);
+      }
+      studioLog(`✓ Project successfully uploaded to Google Drive! (File ID: ${driveFile.id})`);
+      render();
+    }
+  } catch (err) {
+    console.error('Google Drive upload error:', err);
+  }
+}
+
 // ── Studio Persistence ────────────────────────────────────────────────
 function normalizeStudioCharacters() {
   if (!Array.isArray(S.studioCharacters)) {
@@ -140,6 +358,7 @@ function normalizeStudioCharacters() {
 function saveStudioState() {
   try {
     const state = {
+      version: '2.3',
       studioStep: S.studioStep,
       studioTopic: S.studioTopic,
       studioStyle: S.studioStyle,
@@ -157,10 +376,15 @@ function saveStudioState() {
 function restoreStudioState() {
   try {
     const saved = sg('wise-studio-state');
-    if (saved && saved.studioScript && Array.isArray(saved.studioScript.scenes)) {
-      Object.assign(S, saved);
-      normalizeStudioCharacters();
-      return true;
+    if (saved && saved.version === '2.3' && saved.studioScript && Array.isArray(saved.studioScript.scenes)) {
+      const charUrls = new Set((saved.studioCharacters || []).map(c => c.url));
+      // Check if clips incorrectly have character portraits instead of distinct scene visuals
+      const hasDuplicateSheets = Array.isArray(saved.studioClips) && saved.studioClips.length > 1 && saved.studioClips.every(c => !c.imageUrl || charUrls.has(c.imageUrl));
+      if (!hasDuplicateSheets) {
+        Object.assign(S, saved);
+        normalizeStudioCharacters();
+        return true;
+      }
     }
   } catch (_) {}
   return false;
@@ -386,7 +610,6 @@ Return ONLY valid JSON:
 
   try {
     const result = await callGroq(prompt, 3200);
-    // Initialize unassigned character state
     (result.scenes || []).forEach(sc => {
       sc.assignedCharacterId = null;
     });
@@ -487,7 +710,12 @@ function assignCharacterToScene(sceneIdx, charId) {
 
   const char = (S.studioCharacters || []).find(c => c.id === charId);
   if (char && S.studioClips?.[sceneIdx]) {
-    S.studioClips[sceneIdx].imageUrl = char.url;
+    S.studioClips[sceneIdx].characterId = char.id;
+    S.studioClips[sceneIdx].characterName = char.name;
+    S.studioClips[sceneIdx].characterUrl = char.url;
+    if (!S.studioClips[sceneIdx].imageUrl) {
+      S.studioClips[sceneIdx].imageUrl = char.url;
+    }
   }
 
   saveStudioState();
@@ -501,7 +729,12 @@ function assignCharacterToAllScenes(charId) {
   S.studioScript.scenes.forEach((sc, idx) => {
     sc.assignedCharacterId = charId || null;
     if (char && S.studioClips?.[idx]) {
-      S.studioClips[idx].imageUrl = char.url;
+      S.studioClips[idx].characterId = char.id;
+      S.studioClips[idx].characterName = char.name;
+      S.studioClips[idx].characterUrl = char.url;
+      if (!S.studioClips[idx].imageUrl) {
+        S.studioClips[idx].imageUrl = char.url;
+      }
     }
   });
   saveStudioState();
@@ -527,7 +760,9 @@ function autoMatchScriptCharacters() {
       if ((firstName.length > 2 && sceneText.includes(firstName)) || (chName.length > 2 && sceneText.includes(chName))) {
         sc.assignedCharacterId = ch.id;
         if (S.studioClips?.[idx]) {
-          S.studioClips[idx].imageUrl = ch.url;
+          S.studioClips[idx].characterId = ch.id;
+          S.studioClips[idx].characterName = ch.name;
+          S.studioClips[idx].characterUrl = ch.url;
         }
         matchedCount++;
         break;
@@ -555,41 +790,47 @@ function deleteStudioCharacter(charId) {
   render();
 }
 
-function handleCharacterUpload(event) {
+async function handleCharacterUpload(event) {
   const files = event.target?.files;
   if (!files || !files.length) return;
 
   const fileList = Array.from(files);
-  let loaded = 0;
+  let accepted = 0;
+  S.qualityAlert = null;
 
-  fileList.forEach(file => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
-      const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, ' ');
-      const charName = prompt(`Enter Character Name for "${file.name}":`, baseName) || baseName;
-      const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  for (const file of fileList) {
+    const check = await validateCharacterImage(file);
+    if (!check.valid) {
+      S.qualityAlert = {
+        title: 'Low Quality Image Rejected',
+        filename: file.name,
+        reason: check.reason
+      };
+      studioLog(`❌ REJECTED low-quality image "${file.name}": ${check.reason}`);
+      continue;
+    }
 
-      if (!S.studioCharacters) S.studioCharacters = [];
-      S.studioCharacters.push({
-        id: charId,
-        name: charName,
-        url: dataUrl,
-        description: `Uploaded character: ${charName}`
-      });
+    const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, ' ');
+    const charName = prompt(`Enter Character Name for "${file.name}" (${check.width}x${check.height}px HD):`, baseName) || baseName;
+    const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
-      loaded++;
-      if (loaded === fileList.length) {
-        autoMatchScriptCharacters();
-        saveStudioState();
-        studioLog(`Uploaded ${loaded} character image(s).`);
-        render();
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+    if (!S.studioCharacters) S.studioCharacters = [];
+    S.studioCharacters.push({
+      id: charId,
+      name: charName,
+      url: check.dataUrl,
+      description: `Uploaded character: ${charName} (${check.width}x${check.height}px HD)`
+    });
+    accepted++;
+    studioLog(`✓ Accepted high-quality character image "${charName}" (${check.width}x${check.height}px)`);
+  }
+
+  if (accepted > 0) {
+    autoMatchScriptCharacters();
+    saveStudioState();
+  }
   if (event.target) event.target.value = '';
+  render();
 }
 
 function handleCharacterDrop(event) {
@@ -647,7 +888,6 @@ async function generateCharacterRef() {
         throw new Error('Gemini returned no image');
       }
     } else {
-      // Free AI Generation
       const promptText = encodeURIComponent(`Character portrait of ${mainChar}, ${styleInfo.label} style, cute 3d pixar disney animation style, vibrant colorful render, friendly expressive face, 8k render, centered studio portrait`);
       finalUrl = `https://image.pollinations.ai/prompt/${promptText}?width=768&height=768&nologo=true&seed=${Math.floor(Math.random()*100000)}`;
     }
@@ -676,7 +916,7 @@ async function generateCharacterRef() {
   render();
 }
 
-// ── Step 4: Clip Generation with Strict Character Visuals ─────────────
+// ── Step 4: Clip Generation with Distinct Scene Visuals ──────────────
 async function generateStudioClip(idx) {
   const promptData = S.studioPrompts?.[idx];
   const sceneData = S.studioScript?.scenes?.[idx];
@@ -702,12 +942,15 @@ async function generateStudioClip(idx) {
     sceneIndex: idx,
     status: 'generating',
     videoUrl: null,
-    imageUrl: assignedChar.url, // STRICTLY locked to the assigned character image!
+    imageUrl: S.studioClips[idx]?.imageUrl || null,
+    characterId: assignedChar.id,
+    characterName: assignedChar.name,
+    characterUrl: assignedChar.url,
     prompt: promptData?.veoPrompt || sceneData?.description,
     error: null,
     cuts: S.studioClips?.[idx]?.cuts || []
   };
-  studioLog(`Processing Scene ${idx + 1} with assigned character "${assignedChar.name}"...`);
+  studioLog(`Generating visual for Scene ${idx + 1} (${sceneData?.title || ''}) featuring "${assignedChar.name}"...`);
   render();
 
   try {
@@ -731,11 +974,27 @@ async function generateStudioClip(idx) {
       }
     }
 
-    // Strict visual pipeline: Visual MUST use the assigned character image directly!
+    // Generate unique scene-specific visual featuring the assigned character!
+    const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
+    const sceneTitle = sceneData?.title || promptData?.title || `Scene ${idx + 1}`;
+    const sceneAction = promptData?.veoPrompt || sceneData?.description || '';
+    const sceneEnv = sceneData?.environment || '';
+
+    const visualPrompt = encodeURIComponent(
+      `${sceneTitle}, featuring character ${assignedChar.name} (${(assignedChar.description || '').substring(0, 80)}), ${sceneAction}, setting in ${sceneEnv}, ${styleInfo.label} visual style, ultra detailed 4k cinematic render, colorful lighting`
+    );
+    const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
+    const aspectHeight = S.studioAspect === '9:16' ? 1024 : (S.studioAspect === '1:1' ? 768 : 576);
+    const seed = (idx + 1) * 78910 + 12345;
+    const uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}`;
+
     S.studioClips[idx].status = 'done';
-    S.studioClips[idx].imageUrl = assignedChar.url;
+    S.studioClips[idx].imageUrl = uniqueSceneUrl;
+    S.studioClips[idx].characterId = assignedChar.id;
+    S.studioClips[idx].characterName = assignedChar.name;
+    S.studioClips[idx].characterUrl = assignedChar.url;
     S.studioClips[idx].videoUrl = null;
-    studioLog(`Scene ${idx + 1}: Visual locked strictly to character "${assignedChar.name}"!`);
+    studioLog(`Scene ${idx + 1}: Unique visual generated featuring "${assignedChar.name}"!`);
     render();
   } catch (e) {
     S.studioClips[idx].status = 'error';
@@ -792,24 +1051,28 @@ async function generateAllClips() {
       sceneIndex: i,
       status: 'queued',
       videoUrl: null,
-      imageUrl: ch ? ch.url : null,
+      imageUrl: S.studioClips?.[i]?.imageUrl || null,
+      characterId: ch?.id,
+      characterName: ch?.name,
+      characterUrl: ch?.url,
       prompt: p?.veoPrompt || sc?.description || '',
       error: null,
       cuts: S.studioClips?.[i]?.cuts || []
     };
   });
-  studioLog('Starting batch video generation with strictly locked character visuals...');
+  studioLog('Starting batch video generation with distinct scene visuals...');
   render();
 
   for (let i = 0; i < numScenes; i++) {
-    S.studioProgress = `Rendering clip ${i + 1} of ${numScenes} using character visuals...`;
+    S.studioProgress = `Rendering distinct scene ${i + 1} of ${numScenes} featuring assigned characters...`;
     render();
     await generateStudioClip(i);
   }
   S.studioStep = 5;
   S.studioProgress = '';
   saveStudioState();
-  studioLog('All clips generated with strict character visuals!');
+  saveCurrentProjectToHistory();
+  studioLog('All clips generated with distinct scene visuals and character consistency!');
   render();
 }
 
@@ -1095,7 +1358,7 @@ async function exportFullVideo() {
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const sc = S.studioScript?.scenes?.[i] || {};
-      const durationSec = Math.min(getClipEffectiveDuration(i), 15); // cap at 15s per scene for smooth demo export
+      const durationSec = Math.min(getClipEffectiveDuration(i), 15);
 
       S.exportProgressModal = {
         open: true,
@@ -1108,7 +1371,6 @@ async function exportFullVideo() {
 
       const img = await preloadImage(clip);
 
-      // Web Audio sound accompaniment
       try {
         const osc = audioContext.createOscillator();
         const gain = audioContext.createGain();
@@ -1138,14 +1400,12 @@ async function exportFullVideo() {
           ctx.drawImage(img, dx, dy, dw, dh);
         }
 
-        // Dark gradient overlay
         const grad = ctx.createLinearGradient(0, height - 200, 0, height);
         grad.addColorStop(0, 'rgba(0,0,0,0)');
         grad.addColorStop(1, 'rgba(0,0,0,0.85)');
         ctx.fillStyle = grad;
         ctx.fillRect(0, height - 200, width, 200);
 
-        // Subtitles
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 26px Outfit, Inter, sans-serif';
         ctx.textAlign = 'center';
@@ -1190,6 +1450,7 @@ async function exportFullVideo() {
     });
 
     S.exportProgressModal.open = false;
+    saveCurrentProjectToHistory();
     render();
     studioLog('Full movie export downloaded successfully!');
   } catch (err) {
@@ -1290,22 +1551,114 @@ function openLightbox(url, title) {
   render();
 }
 
+function renderHistoryModal() {
+  if (!S.historyModal.open) return '';
+  const history = getProjectHistory();
+  const driveToken = localStorage.getItem('gdrive-access-token');
+
+  return `
+    <div class="modal-overlay" onclick="if(event.target===this){S.historyModal.open=false;render();}">
+      <div class="modal-box" style="max-width:760px">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="ti ti-history" style="color:var(--brand)"></i>
+            Project History & Cloud Storage
+          </div>
+          <button class="modal-close" onclick="S.historyModal.open=false;render()">&times;</button>
+        </div>
+
+        <!-- Google Drive Connection Bar -->
+        <div style="background:var(--surface-2);border-radius:var(--radius-md);padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <i class="ti ti-brand-google-drive" style="font-size:26px;color:#4285f4"></i>
+            <div>
+              <div style="font-weight:600;font-size:13px;color:var(--text-primary)">
+                ${driveToken ? '✓ Google Drive Connected' : 'Google Drive Cloud Sync'}
+              </div>
+              <div style="font-size:11px;color:var(--text-muted)">
+                ${driveToken ? 'Projects and character assets sync directly to your Drive' : 'Connect your Google Drive to back up projects & character assets to the cloud'}
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            ${!driveToken ? `
+              <button class="btn-primary" style="padding:6px 14px;font-size:12px;background:linear-gradient(135deg,#4285f4,#34a853)" onclick="connectGoogleDrive()">
+                <i class="ti ti-login"></i> Connect Google Drive
+              </button>
+            ` : `
+              <button class="btn-ghost" style="padding:6px 12px;font-size:11px" onclick="localStorage.removeItem('gdrive-access-token');S.googleDriveConnected=false;render()">Disconnect</button>
+            `}
+            <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="saveCurrentProjectToHistory()">
+              <i class="ti ti-device-floppy"></i> Save Current Project
+            </button>
+          </div>
+        </div>
+
+        <div class="section-label" style="margin-bottom:8px">Saved Projects (${history.length})</div>
+        ${history.length ? `
+          <div class="history-grid">
+            ${history.map(proj => `
+              <div class="history-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                  <span class="cloud-badge ${proj.source === 'drive' ? 'drive' : 'local'}">
+                    <i class="ti ${proj.source === 'drive' ? 'ti-cloud' : 'ti-device-floppy'}"></i> ${proj.source === 'drive' ? 'Google Drive' : 'Local Storage'}
+                  </span>
+                  <span style="font-size:10px;color:var(--text-muted)">${proj.formattedDate || ''}</span>
+                </div>
+
+                ${proj.previewThumb ? `
+                  <img src="${resolveAssetUrl(proj.previewThumb)}" style="width:100%;height:120px;object-fit:cover;border-radius:6px;background:#000" />
+                ` : ''}
+
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${proj.title}</div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+                    ${proj.numScenes || 0} Scenes &bull; ${proj.duration || '420s'} &bull; Style: ${proj.style || 'kids3d'}
+                  </div>
+                </div>
+
+                <div style="display:flex;gap:6px;margin-top:auto">
+                  <button class="btn-primary" style="flex:1;padding:6px 10px;font-size:12px" onclick="loadProjectFromHistory('${proj.id}')">
+                    <i class="ti ti-folder-open"></i> Load
+                  </button>
+                  <button class="btn-ghost" style="padding:6px 10px;color:#ef4444;font-size:12px" onclick="deleteProjectFromHistory('${proj.id}')" title="Delete project">
+                    <i class="ti ti-trash"></i>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="info-box" style="text-align:center;padding:24px">
+            <i class="ti ti-folder-off" style="font-size:28px;color:var(--text-muted);display:block;margin-bottom:8px"></i>
+            <div>No saved projects found in history yet.</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Click "Save Current Project" above to store your project.</div>
+          </div>
+        `}
+      </div>
+    </div>`;
+}
+
 function renderSetupModal() {
   if (!S.showSetup) return '';
   return `
     <div class="modal-overlay" onclick="if(event.target===this){S.showSetup=false;render();}">
       <div class="modal-box">
         <div class="modal-header">
-          <div class="modal-title"><i class="ti ti-key" style="color:var(--brand)"></i> API Configuration</div>
+          <div class="modal-title"><i class="ti ti-key" style="color:var(--brand)"></i> API & Cloud Configuration</div>
           <button class="modal-close" onclick="S.showSetup=false;render()">&times;</button>
         </div>
         <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
-          Wise Simple Studio runs 100% in your browser. API keys are stored solely in your local browser storage.
+          Wise Simple Studio runs 100% in your browser. API keys and tokens are stored securely in local browser storage.
         </div>
 
-        <div class="section-label" style="margin-bottom:6px">Groq API Key (Required for fast LLM Scripting)</div>
+        <div class="section-label" style="margin-bottom:6px">Groq API Key (Fast LLM Script Generation)</div>
         <input type="password" class="input-field" placeholder="gsk_..." value="${S.apiKey}" oninput="S.apiKey=this.value;localStorage.setItem('groq-key', this.value)" style="margin-bottom:6px" />
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Get a free key from <a href="https://console.groq.com" target="_blank" style="color:var(--brand)">console.groq.com</a> (Free tier: 14,400 req/day).</div>
+
+        <div class="section-label" style="margin-bottom:6px">Google Cloud OAuth Client ID (For Google Drive Sync)</div>
+        <input type="text" class="input-field" placeholder="your-client-id.apps.googleusercontent.com" value="${S.googleClientId}" oninput="S.googleClientId=this.value;localStorage.setItem('gdrive-client-id', this.value)" style="margin-bottom:6px" />
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Enables 1-click cloud sync of projects and assets directly to your Google Drive.</div>
 
         <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (Optional for Veo 2 / Gemini)</div>
         <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value;localStorage.setItem('google-key', this.value)" style="margin-bottom:6px" />
@@ -1341,6 +1694,20 @@ function buildStudio() {
 
   const errorHtml = S.studioError ? `<div class="error-box" style="margin-bottom:14px"><i class="ti ti-alert-circle"></i> ${S.studioError}</div>` : '';
   const progressHtml = S.studioProgress ? `<div class="info-box" style="margin-bottom:14px"><span class="pulse-dot"></span> ${S.studioProgress}</div>` : '';
+
+  // Quality Validation Alert Banner
+  const qualityAlertHtml = S.qualityAlert ? `
+    <div class="quality-alert-box">
+      <i class="ti ti-alert-triangle" style="font-size:24px;color:#ef4444;flex-shrink:0;margin-top:2px"></i>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:14px;color:#ef4444">${S.qualityAlert.title}</div>
+        <div style="font-size:12px;margin-top:4px;color:#fecaca">${S.qualityAlert.reason}</div>
+        <div style="font-size:11px;color:#fca5a5;margin-top:4px">
+          <strong>File:</strong> ${S.qualityAlert.filename} &bull; <em>Rejected to preserve story visual quality.</em>
+        </div>
+      </div>
+      <button onclick="S.qualityAlert=null;render()" style="background:none;border:none;color:#fca5a5;cursor:pointer;font-size:18px">&times;</button>
+    </div>` : '';
 
   let panelHtml = '';
 
@@ -1454,7 +1821,8 @@ function buildStudio() {
         <button class="btn-primary" onclick="S.studioStep=3;render()" style="background:linear-gradient(135deg,#4285f4,#34a853)">
           <i class="ti ti-user-check"></i> Next: Assign Characters (Mandatory)
         </button>
-        <button class="btn-ghost" onclick="generateCharacterRef()" ${S.studioLoading ? 'disabled' : ''}>
+        <button class="btn-ghost" style="font-size:12px;color:#f87171;border-color:rgba(239,68,68,0.4)" onclick="testLowQualityRejection()" title="Simulate quality gate rejection"><i class="ti ti-shield-alert"></i> Test Quality Gate</button>
+            <button class="btn-ghost" onclick="generateCharacterRef()" ${S.studioLoading ? 'disabled' : ''}>
           <i class="ti ti-wand"></i> AI Character Ref
         </button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy All Prompts</button>
@@ -1476,7 +1844,7 @@ function buildStudio() {
           <div>
             <div class="section-label" style="margin-bottom:4px"><i class="ti ti-user-check"></i> Character Visual Studio & Mandatory Scene Assignment</div>
             <div style="font-size:12px;color:var(--text-secondary)">
-              Upload custom character images. <strong>Strict Requirement:</strong> The video generation and movie player strictly use only your character images.
+              Upload custom character images. <strong>Strict Requirement:</strong> Only high-resolution images (min 512x512px) are accepted.
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1497,7 +1865,7 @@ function buildStudio() {
         <div class="studio-upload-zone" onclick="document.getElementById('studio-char-file-input').click()" ondragover="event.preventDefault();this.style.borderColor='var(--brand)'" ondragleave="this.style.borderColor=''" ondrop="handleCharacterDrop(event)">
           <i class="ti ti-cloud-upload"></i>
           <div style="font-size:14px;font-weight:600;margin-top:4px;color:var(--text-primary)">Click to Upload or Drag & Drop Character Images</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Upload PNG, JPG, or WebP character portraits. Uploaded images are stored locally and locked to your video clips.</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Quality Gate: Minimum 512x512px. Low quality images are automatically rejected to protect output quality.</div>
         </div>
 
         <div class="section-label" style="margin-top:20px;margin-bottom:10px"><i class="ti ti-users"></i> Available Characters (${characters.length})</div>
@@ -1648,20 +2016,29 @@ function buildStudio() {
       </div>`;
   }
 
-  // Step 5: Timeline
+  // Step 5: Timeline & Clips (Distinct Scene Thumbnails)
   if (S.studioStep === 5) {
     panelHtml = renderStudioPlayer() + `
       <div class="section-label" style="margin-bottom:10px"><i class="ti ti-layout-grid"></i> Timeline & Scenes</div>
       <div class="studio-timeline">
         ${S.studioClips.map((clip, i) => {
           const p = S.studioPrompts[i];
+          const sc = S.studioScript?.scenes?.[i];
           const cuts = clip.cuts || [];
           const cutTotal = getClipCutTotal(i);
+          const assignedChar = (S.studioCharacters || []).find(c => c.id === sc?.assignedCharacterId);
+
           return `
             <div class="studio-timeline-clip">
               <div class="studio-timeline-header">
                 <span style="font-size:11px;font-weight:700;color:var(--brand)">${i+1}</span>
-                <span style="font-size:12px;font-weight:500;flex:1">${p?.title || 'Scene ' + (i+1)}</span>
+                <span style="font-size:12px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p?.title || 'Scene ' + (i+1)}</span>
+                ${assignedChar ? `
+                  <span class="studio-char-pill" title="Assigned Character: ${assignedChar.name}">
+                    <img src="${resolveAssetUrl(assignedChar.url)}" class="studio-char-avatar" />
+                    <span>${assignedChar.name.split(' ')[0]}</span>
+                  </span>
+                ` : ''}
                 ${cuts.length ? `<span class="studio-cut-pill" style="font-size:9px;padding:1px 5px" title="${cuts.length} cut(s) applied"><i class="ti ti-scissors"></i> ${cuts.length}</span>` : ''}
                 <div style="display:flex;gap:4px">
                   <button class="btn-ghost" style="padding:2px 6px;font-size:11px;color:${cuts.length ? '#f87171' : 'var(--text-muted)'}" onclick="openClipCutModal(${i})" title="Cut/Trim this scene"><i class="ti ti-scissors"></i></button>
@@ -1672,7 +2049,7 @@ function buildStudio() {
               ${clip.videoUrl ? `<video src="${clip.videoUrl}" controls class="studio-clip-preview"></video>` : clip.imageUrl ? `<img src="${resolveAssetUrl(clip.imageUrl)}" class="studio-clip-preview" alt="Scene ${i+1}" />` : `<div class="studio-clip-placeholder">No visual</div>`}
               <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;font-size:10px;color:var(--text-muted)">
                 <span>${p?.cameraMove || ''}</span>
-                <span><strong>${getClipEffectiveDuration(i)}s</strong>${cutTotal > 0 ? ` <s style="opacity:0.6">${S.studioScript?.scenes?.[i]?.duration || '?'}s</s>` : ''}</span>
+                <span><strong>${getClipEffectiveDuration(i)}s</strong>${cutTotal > 0 ? ` <s style="opacity:0.6">${sc?.duration || '?'}s</s>` : ''}</span>
               </div>
             </div>`;
         }).join('')}
@@ -1704,14 +2081,15 @@ function buildStudio() {
           </button>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn-primary" onclick="saveCurrentProjectToHistory()"><i class="ti ti-device-floppy"></i> Save to History & Drive</button>
         <button class="btn-ghost" onclick="exportStudioJSON()"><i class="ti ti-file-export"></i> Save Project JSON</button>
         <button class="btn-ghost" onclick="exportStudioScript()"><i class="ti ti-copy"></i> Copy Script</button>
         <button class="btn-ghost" onclick="S.studioStep=5;render()"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
       </div>`;
   }
 
-  return stepperHtml + errorHtml + progressHtml + panelHtml;
+  return stepperHtml + qualityAlertHtml + errorHtml + progressHtml + panelHtml;
 }
 
 // ── Application Root Renderer ─────────────────────────────────────────
@@ -1721,6 +2099,7 @@ function render() {
 
   document.getElementById('app').innerHTML = `
     ${renderSetupModal()}
+    ${renderHistoryModal()}
     ${renderLightbox()}
     ${renderClipCutModal()}
     ${renderExportProgressModal()}
@@ -1740,6 +2119,9 @@ function render() {
             ${S.availableModels.map(m => `<option value="${m}" ${m === S.activeModel ? 'selected' : ''}>${m}</option>`).join('')}
           </select>
           <button class="api-status ${statusCls}" onclick="S.showSetup=true;render()">${statusTxt}</button>
+          <button class="btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--brand);font-weight:600" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
+            <i class="ti ti-history"></i> History & Drive
+          </button>
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('studio-import-file-input').click()" title="Import existing project JSON"><i class="ti ti-upload"></i> Import</button>
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px" onclick="exportStudioJSON()" title="Export current project JSON"><i class="ti ti-download"></i> Export</button>
         </div>

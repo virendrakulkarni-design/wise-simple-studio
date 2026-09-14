@@ -343,7 +343,7 @@
       "sceneIndex": 0,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/harry_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_1.jpg",
       "prompt": "3D Pixar animation style, wide tracking shot, Harry the Hare in red #1 jersey running in a blurry vortex around calm green tortoise Toby in orange neck scarf, golden sunbeams, 4k cinematic render",
       "error": null,
       "cuts": []
@@ -352,7 +352,7 @@
       "sceneIndex": 1,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_2.jpg",
       "prompt": "3D Pixar animation style, medium shot, cute tortoise Toby with steam comically puffing from ears pointing finger at laughing tall hare Harry with hands on hips, expressive cartoon faces, 4k",
       "error": null,
       "cuts": []
@@ -361,7 +361,7 @@
       "sceneIndex": 2,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/harry_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_3.jpg",
       "prompt": "3D Pixar animation style, wide shot, wooden starting banner GREAT HILL RACE between birch trees, woodland animals cheering, Harry doing cartwheels in red jersey, Toby at start line, 4k",
       "error": null,
       "cuts": []
@@ -370,7 +370,7 @@
       "sceneIndex": 3,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_4.jpg",
       "prompt": "3D Pixar animation, cozy tree workshop, tortoise Toby in brass goggles polishing glowing amber hex shell, chalkboard with GRAVITY CALCULATION and ROLLING TYRE diagram, warm lantern light, 4k",
       "error": null,
       "cuts": []
@@ -379,7 +379,7 @@
       "sceneIndex": 4,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/harry_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_5.jpg",
       "prompt": "3D Pixar animation, winding dirt mountain path, Harry the hare zooming uphill in dust cloud, tortoise Toby walking steadily in foreground with sign UP BIG OAK SUMMIT, 4k",
       "error": null,
       "cuts": []
@@ -388,7 +388,7 @@
       "sceneIndex": 5,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/harry_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_6.jpg",
       "prompt": "3D Pixar animation, funny rabbit Harry with giant round tummy fast asleep snoring under willow tree, carrot tops scattered, floating Z bubbles, afternoon sunlight, 4k render",
       "error": null,
       "cuts": []
@@ -397,7 +397,7 @@
       "sceneIndex": 6,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_7.jpg",
       "prompt": "3D Pixar animation, heroic rock summit cliff, tortoise Toby cupping hands yelling down at waking groggy hare under giant oak tree, golden sunset mountain panorama, 4k render",
       "error": null,
       "cuts": []
@@ -406,7 +406,7 @@
       "sceneIndex": 7,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_8.jpg",
       "prompt": "3D Pixar animation, close-up action, tortoise Toby winking and pulling head and feet into jade green shell forming a glowing rolling tyre at edge of steep downhill cliff, 4k render",
       "error": null,
       "cuts": []
@@ -415,7 +415,7 @@
       "sceneIndex": 8,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_9.jpg",
       "prompt": "3D Pixar animation, high-speed downhill action, jade shell rolling like glowing tyre at supersonic speed bouncing off ramp, panicked hare Harry running with bulging carrot belly, speed lines, 4k",
       "error": null,
       "cuts": []
@@ -424,7 +424,7 @@
       "sceneIndex": 9,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_10.jpg",
       "prompt": "3D Pixar animation, climax celebration, tortoise Toby popping out of shell crossing finish line snapping red ribbon under WINNER TOBY banner, confetti explosion, cheering animals, 4k",
       "error": null,
       "cuts": []
@@ -433,7 +433,7 @@
       "sceneIndex": 10,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/harry_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_11.jpg",
       "prompt": "3D Pixar animation, exhausted rabbit Harry with tongue out clutching carrot belly, kind tortoise Toby offering water bottle with friendly smile, cheering forest animals watching, sunset, 4k",
       "error": null,
       "cuts": []
@@ -442,7 +442,7 @@
       "sceneIndex": 11,
       "status": "done",
       "videoUrl": null,
-      "imageUrl": "assets/characters/toby_sheet.jpg",
+      "imageUrl": "assets/scenes/scene_12.jpg",
       "prompt": "3D Pixar animation grand finale, Toby the Tortoise orange bandana and Harry the Hare red jersey 1 holding golden trophy together on podium, cheering forest animals, celebratory confetti, sunset, 4k",
       "error": null,
       "cuts": []
