@@ -2,6 +2,11 @@
 
 > **AI Video & Animated Story Creator** — Fast, client-side, 7-step storytelling and video animation pipeline.
 
+
+[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://virendrakulkarni-design.github.io/wise-simple-studio/)
+
+**🌐 Live Demo:** [https://virendrakulkarni-design.github.io/wise-simple-studio/](https://virendrakulkarni-design.github.io/wise-simple-studio/)
+
 Wise Simple Studio is an independent, streamlined application dedicated exclusively to generating animated stories, video scripts, custom character art, video clips, and full movie compilations.
 
 ---
