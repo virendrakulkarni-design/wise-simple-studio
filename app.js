@@ -74,6 +74,7 @@ const S = {
   studioScript: null,
   studioPrompts: [],
   studioCharacters: [],
+  archivedCharacters: [],
   studioClips: [],
   studioLoading: false,
   studioProgress: '',
@@ -198,6 +199,10 @@ function getProjectHistory() {
 
 function saveCurrentProjectToHistory() {
   const history = getProjectHistory();
+  const histFilter = S.historyModal.filter || 'all';
+  const displayedHistory = histFilter === 'active' 
+    ? history.filter(p => !p.archived)
+    : (histFilter === 'archived' ? history.filter(p => p.archived) : history);
   const title = S.studioTopic || 'Untitled Project';
   const id = 'proj_' + Date.now();
   const previewThumb = S.studioClips?.[0]?.imageUrl || S.studioCharacters?.[0]?.url || '';
@@ -222,6 +227,7 @@ function saveCurrentProjectToHistory() {
       studioScript: S.studioScript,
       studioPrompts: S.studioPrompts,
       studioCharacters: S.studioCharacters,
+      archivedCharacters: S.archivedCharacters || [],
       studioClips: S.studioClips
     }
   };
@@ -253,11 +259,90 @@ function loadProjectFromHistory(id) {
   render();
 }
 
-function deleteProjectFromHistory(id) {
-  if (!confirm('Are you sure you want to delete this project from history?')) return;
-  let history = getProjectHistory();
-  history = history.filter(p => p.id !== id);
+async function deleteProjectFromHistory(id) {
+  const history = getProjectHistory();
+  const entry = history.find(p => p.id === id);
+  if (!entry) return;
+  const title = entry.title || 'Untitled Project';
+
+  // If project is already in Archive, Step 1 is already complete -> prompt for permanent delete
+  if (entry.archived) {
+    const confirmDelete = confirm(
+      `[Permanent Deletion]\n\n` +
+      `Are you sure you want to PERMANENTLY DELETE archived project "${title}"?\n\n` +
+      `⚠️ Warning: This action cannot be undone.\n\n` +
+      `• Click OK to permanently delete.\n` +
+      `• Click Cancel to keep it.`
+    );
+    if (!confirmDelete) return;
+
+    if (entry.source === 'drive') {
+      await deleteProjectFromGoogleDrive(entry);
+    }
+    const updated = history.filter(p => p.id !== id);
+    ss('wise-studio-history', updated);
+    studioLog(`✓ Project "${title}" permanently deleted.`);
+    render();
+    return;
+  }
+
+  // Step 1: Offer to archive first
+  const wantArchive = confirm(
+    `[Step 1 of 2: Archive Option]\n\n` +
+    `Would you like to ARCHIVE "${title}" instead of deleting it?\n\n` +
+    `• Click OK to safely Archive.\n` +
+    `• Click Cancel to skip archiving and proceed to deletion.`
+  );
+
+  if (wantArchive) {
+    entry.archived = true;
+    entry.archivedAt = new Date().toISOString();
+    if (entry.source === 'drive') {
+      await archiveProjectOnGoogleDrive(entry);
+    }
+    const idx = history.findIndex(p => p.id === id);
+    if (idx !== -1) history[idx] = entry;
+    ss('wise-studio-history', history);
+    studioLog(`✓ Project "${title}" archived successfully.`);
+    render();
+    return;
+  }
+
+  // Step 2: User chose not to archive -> confirm permanent deletion
+  const confirmDelete = confirm(
+    `[Step 2 of 2: Permanent Deletion]\n\n` +
+    `Are you sure you want to PERMANENTLY DELETE "${title}"?\n\n` +
+    `⚠️ Warning: This action cannot be undone.\n\n` +
+    `• Click OK to permanently delete.\n` +
+    `• Click Cancel to abort and keep the project.`
+  );
+
+  if (confirmDelete) {
+    if (entry.source === 'drive') {
+      await deleteProjectFromGoogleDrive(entry);
+    }
+    const updated = history.filter(p => p.id !== id);
+    ss('wise-studio-history', updated);
+    studioLog(`✓ Project "${title}" permanently deleted.`);
+    render();
+  } else {
+    studioLog(`Deletion cancelled for "${title}".`);
+  }
+}
+
+async function restoreProjectFromHistory(id) {
+  const history = getProjectHistory();
+  const entry = history.find(p => p.id === id);
+  if (!entry) return;
+  entry.archived = false;
+  delete entry.archivedAt;
+  if (entry.source === 'drive') {
+    await restoreProjectOnGoogleDrive(entry);
+  }
+  const idx = history.findIndex(p => p.id === id);
+  if (idx !== -1) history[idx] = entry;
   ss('wise-studio-history', history);
+  studioLog(`✓ Project "${entry.title}" restored to active.`);
   render();
 }
 
@@ -294,17 +379,161 @@ function connectGoogleDrive() {
   gdriveTokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
+async function getOrCreateDriveFolder(token, folderName, parentId = null) {
+  const cleanName = folderName.trim() || 'Untitled';
+  const escapedName = cleanName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  let query = "mimeType = 'application/vnd.google-apps.folder' and name = '" + escapedName + "' and trashed = false";
+  if (parentId) {
+    query += " and '" + parentId + "' in parents";
+  } else {
+    query += " and 'root' in parents";
+  }
+
+  const searchUrl = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)&spaces=drive';
+  const searchRes = await fetch(searchUrl, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+
+  if (!searchRes.ok) {
+    if (searchRes.status === 401) {
+      localStorage.removeItem('gdrive-access-token');
+      S.googleDriveConnected = false;
+      throw new Error('Google Drive authorization expired. Please reconnect Google Drive.');
+    }
+    const errText = await searchRes.text().catch(() => '');
+    throw new Error('Failed searching Google Drive for folder "' + cleanName + '": ' + errText);
+  }
+
+  const searchData = await searchRes.json();
+  if (searchData.files && searchData.files.length > 0) {
+    return searchData.files[0].id;
+  }
+
+  // Folder does not exist, create it
+  studioLog('📁 Creating folder "' + cleanName + '" on Google Drive...');
+  const folderMetadata = {
+    name: cleanName,
+    mimeType: 'application/vnd.google-apps.folder'
+  };
+  if (parentId) {
+    folderMetadata.parents = [parentId];
+  }
+
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(folderMetadata)
+  });
+
+  if (!createRes.ok) {
+    if (createRes.status === 401) {
+      localStorage.removeItem('gdrive-access-token');
+      S.googleDriveConnected = false;
+      throw new Error('Google Drive authorization expired. Please reconnect Google Drive.');
+    }
+    const errText = await createRes.text().catch(() => '');
+    throw new Error('Failed to create Google Drive folder "' + cleanName + '": ' + errText);
+  }
+
+  const newFolder = await createRes.json();
+  return newFolder.id;
+}
+
+
+async function archiveProjectOnGoogleDrive(projectEntry) {
+  const token = localStorage.getItem('gdrive-access-token');
+  if (!token) return;
+  try {
+    studioLog(`Archiving project "${projectEntry.title}" on Google Drive...`);
+    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    const archiveFolderId = await getOrCreateDriveFolder(token, 'Archive', studioFolderId);
+    const targetId = projectEntry.driveFolderId || projectEntry.driveFileId;
+    if (!targetId) return;
+
+    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + archiveFolderId + '&removeParents=' + studioFolderId + '&fields=id,parents';
+    const moveRes = await fetch(moveUrl, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    if (moveRes.ok) {
+      projectEntry.archivedFolderId = archiveFolderId;
+      studioLog(`✓ Moved to Google Drive: My Animation Studio / Archive / ${projectEntry.title}`);
+    }
+  } catch (err) {
+    console.error('Google Drive archive error:', err);
+  }
+}
+
+async function restoreProjectOnGoogleDrive(projectEntry) {
+  const token = localStorage.getItem('gdrive-access-token');
+  if (!token) return;
+  try {
+    studioLog(`Restoring project "${projectEntry.title}" on Google Drive...`);
+    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    const archiveFolderId = await getOrCreateDriveFolder(token, 'Archive', studioFolderId);
+    const targetId = projectEntry.driveFolderId || projectEntry.driveFileId;
+    if (!targetId) return;
+
+    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + studioFolderId + '&removeParents=' + archiveFolderId + '&fields=id,parents';
+    await fetch(moveUrl, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    delete projectEntry.archivedFolderId;
+    studioLog(`✓ Restored on Google Drive: My Animation Studio / ${projectEntry.title}`);
+  } catch (err) {
+    console.error('Google Drive restore error:', err);
+  }
+}
+
+async function deleteProjectFromGoogleDrive(projectEntry) {
+  const token = localStorage.getItem('gdrive-access-token');
+  if (!token) return;
+  try {
+    const targetId = projectEntry.driveFolderId || projectEntry.driveFileId;
+    if (!targetId) return;
+    studioLog(`Deleting "${projectEntry.title}" from Google Drive...`);
+    await fetch('https://www.googleapis.com/drive/v3/files/' + targetId, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    studioLog(`✓ Deleted from Google Drive: ${projectEntry.title}`);
+  } catch (err) {
+    console.error('Google Drive delete error:', err);
+  }
+}
+
 async function saveProjectToGoogleDrive(projectEntry) {
   const token = localStorage.getItem('gdrive-access-token');
   if (!token) return;
 
   try {
-    studioLog('Syncing project package to Google Drive...');
-    const filename = `wise_studio_${(projectEntry.title || 'project').replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+    const rawTitle = (projectEntry.title || 'Untitled Project').trim() || 'Untitled Project';
+    const projectTitle = rawTitle.replace(/[\\/]/g, ' - ');
+    studioLog('Syncing project package to Google Drive under "My Animation Studio / ' + projectTitle + '"...');
+
+    // 1. Ensure root studio folder 'My Animation Studio' exists
+    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
+
+    // 2. Ensure project-specific subfolder exists within 'My Animation Studio'
+    const projectFolderId = await getOrCreateDriveFolder(token, projectTitle, studioFolderId);
+
+    // 3. Upload project file inside the project folder
+    const filename = `wise_studio_${projectTitle.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
     const metadata = {
       name: filename,
       mimeType: 'application/json',
-      description: 'Wise Simple Studio AI Story & Video Project'
+      description: `Wise Simple Studio AI Story & Video Project - ${projectTitle}`,
+      parents: [projectFolderId]
     };
 
     const form = new FormData();
@@ -321,17 +550,31 @@ async function saveProjectToGoogleDrive(projectEntry) {
       const driveFile = await res.json();
       projectEntry.source = 'drive';
       projectEntry.driveFileId = driveFile.id;
+      projectEntry.driveFolderId = projectFolderId;
+      projectEntry.driveStudioFolderId = studioFolderId;
       const history = getProjectHistory();
       const idx = history.findIndex(p => p.id === projectEntry.id);
       if (idx !== -1) {
         history[idx] = projectEntry;
         ss('wise-studio-history', history);
       }
-      studioLog(`✓ Project successfully uploaded to Google Drive! (File ID: ${driveFile.id})`);
+      studioLog(`✓ Project saved to Google Drive: My Animation Studio / ${projectTitle} / ${filename}`);
       render();
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.error?.message || `HTTP ${res.status}`;
+      studioLog(`⚠️ Google Drive upload error: ${errMsg}`);
+      if (res.status === 401) {
+        localStorage.removeItem('gdrive-access-token');
+        S.googleDriveConnected = false;
+        studioLog('⚠️ Google Drive session expired. Please reconnect.');
+        render();
+      }
     }
   } catch (err) {
     console.error('Google Drive upload error:', err);
+    studioLog(`⚠️ Google Drive error: ${err.message || err}`);
+    render();
   }
 }
 
@@ -777,16 +1020,76 @@ function autoMatchScriptCharacters() {
 
 function deleteStudioCharacter(charId) {
   const char = (S.studioCharacters || []).find(c => c.id === charId);
-  if (!confirm(`Are you sure you want to delete character "${char?.name || 'this character'}"?`)) return;
+  const charName = char?.name || 'this character';
 
-  S.studioCharacters = (S.studioCharacters || []).filter(c => c.id !== charId);
-  (S.studioScript?.scenes || []).forEach(sc => {
-    if (sc.assignedCharacterId === charId) {
-      sc.assignedCharacterId = null;
-    }
-  });
+  // Step 1: Offer to archive
+  const wantArchive = confirm(
+    `[Step 1 of 2: Archive Option]\n\n` +
+    `Would you like to ARCHIVE character "${charName}" instead of deleting it?\n\n` +
+    `• Click OK to safely Archive.\n` +
+    `• Click Cancel to skip archiving and proceed to deletion.`
+  );
+
+  if (wantArchive) {
+    if (!Array.isArray(S.archivedCharacters)) S.archivedCharacters = [];
+    const archivedChar = { ...char, archivedAt: new Date().toISOString() };
+    S.archivedCharacters.push(archivedChar);
+    S.studioCharacters = (S.studioCharacters || []).filter(c => c.id !== charId);
+    (S.studioScript?.scenes || []).forEach(sc => {
+      if (sc.assignedCharacterId === charId) {
+        sc.assignedCharacterId = null;
+      }
+    });
+    saveStudioState();
+    studioLog(`✓ Character "${charName}" archived.`);
+    render();
+    return;
+  }
+
+  // Step 2: Confirm permanent deletion
+  const confirmDelete = confirm(
+    `[Step 2 of 2: Permanent Deletion]\n\n` +
+    `Are you sure you want to PERMANENTLY DELETE character "${charName}"?\n\n` +
+    `⚠️ Warning: This action cannot be undone.\n\n` +
+    `• Click OK to permanently delete.\n` +
+    `• Click Cancel to abort.`
+  );
+
+  if (confirmDelete) {
+    S.studioCharacters = (S.studioCharacters || []).filter(c => c.id !== charId);
+    (S.studioScript?.scenes || []).forEach(sc => {
+      if (sc.assignedCharacterId === charId) {
+        sc.assignedCharacterId = null;
+      }
+    });
+    saveStudioState();
+    studioLog(`✓ Character "${charName}" permanently deleted.`);
+    render();
+  } else {
+    studioLog(`Deletion cancelled for character "${charName}".`);
+  }
+}
+
+function restoreStudioCharacter(charId) {
+  const char = (S.archivedCharacters || []).find(c => c.id === charId);
+  if (!char) return;
+  if (!Array.isArray(S.studioCharacters)) S.studioCharacters = [];
+  const restored = { ...char };
+  delete restored.archivedAt;
+  S.studioCharacters.push(restored);
+  S.archivedCharacters = (S.archivedCharacters || []).filter(c => c.id !== charId);
   saveStudioState();
-  studioLog(`Deleted character ${char?.name || charId}`);
+  studioLog(`✓ Character "${char.name || 'Character'}" restored.`);
+  render();
+}
+
+function deleteArchivedCharacter(charId) {
+  const char = (S.archivedCharacters || []).find(c => c.id === charId);
+  const charName = char?.name || 'this character';
+  if (!confirm(`Are you sure you want to PERMANENTLY delete archived character "${charName}"?\n\n⚠️ This cannot be undone.`)) return;
+  S.archivedCharacters = (S.archivedCharacters || []).filter(c => c.id !== charId);
+  saveStudioState();
+  studioLog(`✓ Archived character "${charName}" permanently deleted.`);
   render();
 }
 
@@ -1576,7 +1879,7 @@ function renderHistoryModal() {
                 ${driveToken ? '✓ Google Drive Connected' : 'Google Drive Cloud Sync'}
               </div>
               <div style="font-size:11px;color:var(--text-muted)">
-                ${driveToken ? 'Projects and character assets sync directly to your Drive' : 'Connect your Google Drive to back up projects & character assets to the cloud'}
+                ${driveToken ? 'Projects sync to Google Drive &rsaquo; <b>My Animation Studio</b> &rsaquo; <b>&lt;Project Name&gt;</b>' : 'Connect your Google Drive to automatically back up projects to "My Animation Studio" in the cloud'}
               </div>
             </div>
           </div>
@@ -1594,15 +1897,36 @@ function renderHistoryModal() {
           </div>
         </div>
 
-        <div class="section-label" style="margin-bottom:8px">Saved Projects (${history.length})</div>
-        ${history.length ? `
+        ${(() => {
+          const histFilter = S.historyModal.filter || 'all';
+          const activeCnt = history.filter(p => !p.archived).length;
+          const archivedCnt = history.filter(p => p.archived).length;
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+              <div class="section-label" style="margin-bottom:0">Saved Projects (${displayedHistory.length})</div>
+              <div style="display:flex;gap:4px">
+                <button class="btn-ghost" style="padding:4px 10px;font-size:11px;${histFilter === 'all' ? 'background:var(--brand);color:#fff;border-color:var(--brand);' : ''}" onclick="S.historyModal.filter='all';render()">All (${history.length})</button>
+                <button class="btn-ghost" style="padding:4px 10px;font-size:11px;${histFilter === 'active' ? 'background:var(--brand);color:#fff;border-color:var(--brand);' : ''}" onclick="S.historyModal.filter='active';render()">Active (${activeCnt})</button>
+                <button class="btn-ghost" style="padding:4px 10px;font-size:11px;${histFilter === 'archived' ? 'background:var(--brand);color:#fff;border-color:var(--brand);' : ''}" onclick="S.historyModal.filter='archived';render()">Archived (${archivedCnt})</button>
+              </div>
+            </div>
+          `;
+        })()}
+        ${displayedHistory.length ? `
           <div class="history-grid">
-            ${history.map(proj => `
+            ${displayedHistory.map(proj => `
               <div class="history-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-                  <span class="cloud-badge ${proj.source === 'drive' ? 'drive' : 'local'}">
+                  <div style="display:flex;gap:5px;align-items:center">
+                    <span class="cloud-badge ${proj.source === 'drive' ? 'drive' : 'local'}">
                     <i class="ti ${proj.source === 'drive' ? 'ti-cloud' : 'ti-device-floppy'}"></i> ${proj.source === 'drive' ? 'Google Drive' : 'Local Storage'}
                   </span>
+                    ${proj.archived ? `
+                      <span style="background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid rgba(245,158,11,0.3);display:inline-flex;align-items:center;gap:3px">
+                        <i class="ti ti-archive"></i> Archived
+                      </span>
+                    ` : ''}
+                  </div>
                   <span style="font-size:10px;color:var(--text-muted)">${proj.formattedDate || ''}</span>
                 </div>
 
@@ -1617,10 +1941,29 @@ function renderHistoryModal() {
                   </div>
                 </div>
 
+                ${proj.source === 'drive' ? `
+                  <div style="font-size:10px;color:var(--brand);margin-top:4px;display:flex;align-items:center;gap:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Folder: My Animation Studio / ${proj.title}">
+                    <i class="ti ti-folder"></i> My Animation Studio / ${proj.title}
+                  </div>
+                ` : ''}
                 <div style="display:flex;gap:6px;margin-top:auto">
                   <button class="btn-primary" style="flex:1;padding:6px 10px;font-size:12px" onclick="loadProjectFromHistory('${proj.id}')">
                     <i class="ti ti-folder-open"></i> Load
                   </button>
+                  ${proj.archived ? `
+                    <button class="btn-ghost" style="padding:6px 10px;font-size:12px;color:var(--text-success)" onclick="restoreProjectFromHistory('${proj.id}')" title="Restore project to active">
+                      <i class="ti ti-rotate-clockwise"></i> Restore
+                    </button>
+                  ` : ''}
+                  ${proj.driveFolderId ? `
+                    <a href="https://drive.google.com/drive/folders/${proj.driveFolderId}" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 10px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;color:#4285f4" title="Open project folder in Google Drive: My Animation Studio / ${proj.title}">
+                      <i class="ti ti-brand-google-drive"></i>
+                    </a>
+                  ` : (proj.driveFileId ? `
+                    <a href="https://drive.google.com/file/d/${proj.driveFileId}/view" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 10px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;color:#4285f4" title="View file in Google Drive">
+                      <i class="ti ti-brand-google-drive"></i>
+                    </a>
+                  ` : '')}
                   <button class="btn-ghost" style="padding:6px 10px;color:#ef4444;font-size:12px" onclick="deleteProjectFromHistory('${proj.id}')" title="Delete project">
                     <i class="ti ti-trash"></i>
                   </button>
@@ -1896,6 +2239,27 @@ function buildStudio() {
           </div>
         `}
       </div>
+
+      ${(S.archivedCharacters && S.archivedCharacters.length) ? `
+          <div style="margin-top:20px;padding:12px;background:var(--surface-2);border-radius:var(--radius-md);border:1px solid var(--border)">
+            <div class="section-label" style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">
+              <i class="ti ti-archive"></i> Archived Characters (${S.archivedCharacters.length})
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              ${S.archivedCharacters.map(ac => `
+                <div style="display:flex;align-items:center;gap:10px;background:var(--surface-1);padding:6px 12px;border-radius:6px;border:1px solid var(--border)">
+                  <img src="${resolveAssetUrl(ac.url)}" style="width:36px;height:36px;border-radius:4px;object-fit:cover" />
+                  <div>
+                    <div style="font-size:12px;font-weight:600">${ac.name || 'Character'}</div>
+                    <div style="font-size:10px;color:var(--text-muted)">Archived</div>
+                  </div>
+                  <button class="btn-ghost" style="padding:4px 8px;font-size:11px;color:var(--text-success)" onclick="restoreStudioCharacter('${ac.id}')" title="Restore character to active"><i class="ti ti-rotate-clockwise"></i> Restore</button>
+                  <button class="btn-ghost" style="padding:4px 8px;font-size:11px;color:#ef4444" onclick="deleteArchivedCharacter('${ac.id}')" title="Permanently delete"><i class="ti ti-trash"></i></button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
 
       <div class="card" style="margin-top:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
