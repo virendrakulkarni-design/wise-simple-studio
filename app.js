@@ -4,12 +4,112 @@
  */
 
 const GROQ_API = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_GROQ_MODELS = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
-  'gemma2-9b-it',
-  'mixtral-8x7b-32768'
+const GROQ_MODELS_ENDPOINT = 'https://api.groq.com/openai/v1/models';
+
+const KNOWN_GROQ_MODELS = [
+  { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile (Recommended)', active: true },
+  { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (Ultra-Fast)', active: true },
+  { id: 'llama-3.2-3b-preview', label: 'Llama 3.2 3B Preview', active: true },
+  { id: 'llama-3.2-1b-preview', label: 'Llama 3.2 1B Preview', active: true },
+  { id: 'qwen-2.5-32b', label: 'Qwen 2.5 32B', active: true },
+  { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill Llama 70B', active: true },
+  { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B (Deprecated)', active: false },
+  { id: 'gemma2-9b-it', label: 'Gemma 2 9B (Deprecated)', active: false },
+  { id: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B (Sunset)', active: false },
+  { id: 'llama3-70b-8192', label: 'Llama 3 70B 8192 (Sunset)', active: false },
+  { id: 'llama3-8b-8192', label: 'Llama 3 8B 8192 (Sunset)', active: false }
 ];
+
+const DEFAULT_GROQ_MODELS = KNOWN_GROQ_MODELS.map(m => m.id);
+
+async function loadGroqModels() {
+  const key = S.apiKey || localStorage.getItem('groq-key');
+  if (!key) {
+    S.accessibleModelIds = new Set(KNOWN_GROQ_MODELS.filter(m => m.active).map(m => m.id));
+    render();
+    return;
+  }
+
+  try {
+    const res = await fetch(GROQ_MODELS_ENDPOINT, {
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!res.ok) {
+      // Key may be invalid or unauthorized; default to active known models
+      S.accessibleModelIds = new Set(KNOWN_GROQ_MODELS.filter(m => m.active).map(m => m.id));
+      render();
+      return;
+    }
+
+    const data = await res.json();
+    if (data && Array.isArray(data.data)) {
+      // Keep only text chat models that are active on this key
+      const liveAccessibleIds = new Set(
+        data.data
+          .filter(m => m.active !== false && !m.id.includes('whisper') && !m.id.includes('tts') && !m.id.includes('guard'))
+          .map(m => m.id)
+      );
+
+      // Add any newly discovered live models from Groq to our catalog if not already present
+      data.data.forEach(m => {
+        if (!m.id.includes('whisper') && !m.id.includes('tts') && !m.id.includes('guard')) {
+          if (!KNOWN_GROQ_MODELS.some(km => km.id === m.id)) {
+            KNOWN_GROQ_MODELS.unshift({ id: m.id, label: m.id, active: m.active !== false });
+          }
+        }
+      });
+
+      S.accessibleModelIds = liveAccessibleIds;
+
+      // If current active model is disabled or not accessible on this key, switch to best accessible model
+      if (!S.accessibleModelIds.has(S.activeModel)) {
+        S.activeModel = S.accessibleModelIds.has('llama-3.3-70b-versatile')
+          ? 'llama-3.3-70b-versatile'
+          : (Array.from(S.accessibleModelIds)[0] || 'llama-3.3-70b-versatile');
+        localStorage.setItem('active-model', S.activeModel);
+      }
+    }
+  } catch (err) {
+    console.warn('Could not query Groq models:', err);
+    S.accessibleModelIds = new Set(KNOWN_GROQ_MODELS.filter(m => m.active).map(m => m.id));
+  }
+
+  render();
+}
+
+function renderModelSelect() {
+  const accessibleSet = S.accessibleModelIds || new Set(
+    KNOWN_GROQ_MODELS.filter(m => m.active).map(m => m.id)
+  );
+
+  const supportedModels = KNOWN_GROQ_MODELS.filter(m => accessibleSet.has(m.id));
+  const disabledModels = KNOWN_GROQ_MODELS.filter(m => !accessibleSet.has(m.id));
+
+  return `
+    <select class="select-field" title="Active Model (Supported: ${supportedModels.length}, Disabled: ${disabledModels.length})" onchange="S.activeModel=this.value;localStorage.setItem('active-model', this.value)">
+      <optgroup label="✓ Supported & Accessible Models">
+        ${supportedModels.map(m => `
+          <option value="${m.id}" ${m.id === S.activeModel ? 'selected' : ''}>
+            ${m.label || m.id}
+          </option>
+        `).join('')}
+      </optgroup>
+      ${disabledModels.length ? `
+        <optgroup label="⊘ Disabled / Unsupported Models">
+          ${disabledModels.map(m => `
+            <option value="${m.id}" disabled style="color:var(--text-muted);opacity:0.5">
+              ${m.label || m.id} (Disabled)
+            </option>
+          `).join('')}
+        </optgroup>
+      ` : ''}
+    </select>
+  `;
+}
 
 const STUDIO_STYLES = {
   kids3d: {
@@ -2110,7 +2210,7 @@ function renderSetupModal() {
         </div>
 
         <div class="section-label" style="margin-bottom:6px">Groq API Key (Fast LLM Script Generation)</div>
-        <input type="password" class="input-field" placeholder="gsk_..." value="${S.apiKey}" oninput="S.apiKey=this.value;localStorage.setItem('groq-key', this.value)" style="margin-bottom:6px" />
+        <input type="password" class="input-field" placeholder="gsk_..." value="${S.apiKey}" oninput="S.apiKey=this.value.trim();localStorage.setItem('groq-key', this.value.trim());loadGroqModels();" style="margin-bottom:6px" />
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Get a free key from <a href="https://console.groq.com" target="_blank" style="color:var(--brand)">console.groq.com</a> (Free tier: 14,400 req/day).</div>
 
         <div class="section-label" style="margin-bottom:6px">Google Cloud OAuth Client ID (For Google Drive Sync)</div>
@@ -2121,7 +2221,7 @@ function renderSetupModal() {
         <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value;localStorage.setItem('google-key', this.value)" style="margin-bottom:6px" />
         <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Optional. If omitted, Wise Studio automatically uses high-speed Free AI Visual Models.</div>
 
-        <button class="btn-primary" style="width:100%" onclick="S.showSetup=false;render()"><i class="ti ti-check"></i> Save & Continue</button>
+        <button class="btn-primary" style="width:100%" onclick="S.showSetup=false;loadGroqModels();render()"><i class="ti ti-check"></i> Save & Continue</button>
       </div>
     </div>`;
 }
@@ -2609,9 +2709,7 @@ function render() {
           </div>
         </div>
         <div class="header-right">
-          <select class="select-field" title="Active Model" onchange="S.activeModel=this.value;localStorage.setItem('active-model', this.value)">
-            ${S.availableModels.map(m => `<option value="${m}" ${m === S.activeModel ? 'selected' : ''}>${m}</option>`).join('')}
-          </select>
+          ${renderModelSelect()}
           <button class="api-status ${statusCls}" onclick="S.showSetup=true;render()">${statusTxt}</button>
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px;${S.historyModal.open ? 'color:var(--brand);font-weight:600;' : ''}" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
             <i class="ti ti-history"></i> History & Drive
@@ -2640,3 +2738,4 @@ function init() {
 }
 
 init();
+loadGroqModels();
