@@ -1286,14 +1286,89 @@ Return ONLY valid JSON:
 }
 
 // ── Step 1 -> Step 2: Prompt Expansion ────────────────────────────────
+function generateFallbackPrompts(script) {
+  const rawScenes = Array.isArray(script) ? script : (script?.scenes || script?.script?.scenes || []);
+  const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
+  const styleDesc = styleInfo.promptDesc || styleInfo.desc || styleInfo.label;
+  const mainChar = (typeof script?.mainCharacter === 'string' && script.mainCharacter !== 'none') ? script.mainCharacter : '';
+
+  return rawScenes.map((s, idx) => {
+    const sceneNum = s.sceneNum || (idx + 1);
+    const title = s.title || `Scene ${sceneNum}`;
+    const camera = s.camera || 'Cinematic tracking shot, 35mm lens, smooth fluid motion';
+    const lighting = s.lighting || 'Warm volumetric golden lighting, soft cinematic shadows, ambient occlusion';
+    const env = s.environment || 'Detailed vibrant cinematic background, rich textures';
+    const action = s.visualAction || s.description || s.narration || '';
+    const chars = Array.isArray(s.characters) ? s.characters.join(', ') : (s.characters || mainChar || '');
+
+    const veoPrompt = `${styleDesc}, ${title}. ${action}. ${chars ? 'Characters: ' + chars + '. ' : ''}Setting: ${env}. Lighting: ${lighting}. Camera: ${camera}, smooth cinematic movement, ultra-detailed 8k render, Unreal Engine 5 aesthetic, photorealistic textures, Disney Pixar animation feature film quality.`;
+
+    const negativePrompt = 'blurry, distorted, grainy, low resolution, ugly, duplicate, mutilated, watermark, bad anatomy, out of frame, text artifacts';
+    const cameraMove = s.camera || 'Smooth cinematic push-in';
+
+    return {
+      sceneNum,
+      title,
+      veoPrompt,
+      negativePrompt,
+      cameraMove,
+      duration: s.duration || 30
+    };
+  });
+}
+
+function extractPromptsFromResult(result) {
+  if (!result) return null;
+  if (Array.isArray(result) && result.length) return result;
+  if (Array.isArray(result.prompts) && result.prompts.length) return result.prompts;
+  if (Array.isArray(result.scenes) && result.scenes.length) return result.scenes;
+  if (Array.isArray(result.videoPrompts) && result.videoPrompts.length) return result.videoPrompts;
+  if (Array.isArray(result.data) && result.data.length) return result.data;
+  for (const val of Object.values(result)) {
+    if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') return val;
+  }
+  return null;
+}
+
 async function expandStudioPrompts() {
-  if (!S.studioScript?.scenes?.length) { S.studioError = 'Generate a script first.'; render(); return; }
+  const rawScenes = Array.isArray(S.studioScript)
+    ? S.studioScript
+    : (S.studioScript?.scenes || S.studioScript?.script?.scenes || []);
+
+  if (!rawScenes.length) {
+    S.studioError = 'Please generate or add scenes to your script first.';
+    render();
+    return;
+  }
+
+  // Ensure script is properly shaped
+  if (!S.studioScript.scenes) {
+    S.studioScript = {
+      mainCharacter: S.studioScript?.mainCharacter || '',
+      narrator: S.studioScript?.narrator || '',
+      scenes: rawScenes
+    };
+  }
 
   S.studioLoading = true;
   S.studioError = '';
   S.studioProgress = 'Expanding scenes into cinematic prompts...';
   studioLog('Expanding scenes into prompts...');
   render();
+
+  const fallback = generateFallbackPrompts(S.studioScript);
+
+  // If no Groq API key is configured, immediately use high-quality local generator
+  if (!S.apiKey) {
+    S.studioPrompts = fallback;
+    S.studioStep = 2;
+    S.studioLoading = false;
+    S.studioProgress = '';
+    saveStudioState();
+    studioLog(`✓ Expanded ${S.studioPrompts.length} cinematic prompts using built-in engine.`);
+    render();
+    return;
+  }
 
   const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
   const mainChar = S.studioScript.mainCharacter || 'none';
@@ -1306,10 +1381,10 @@ ASPECT RATIO: ${S.studioAspect}
 MAIN CHARACTER: ${mainChar}
 
 SCENES:
-${JSON.stringify(S.studioScript.scenes.map(s => ({
+${JSON.stringify(rawScenes.map(s => ({
   sceneNum: s.sceneNum,
   title: s.title,
-  description: s.description,
+  description: s.description || s.visualAction,
   environment: s.environment,
   mood: s.mood,
   lighting: s.lighting,
@@ -1341,15 +1416,51 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const result = await callGroq(prompt, 3000);
-    S.studioPrompts = result.prompts || [];
+    let result = null;
+    try {
+      result = await callGroq(prompt, 4096);
+    } catch (callErr) {
+      // If primary model failed (e.g. rate limit 429), try ultra-fast instant model as fallback
+      if (S.activeModel !== 'llama-3.1-8b-instant') {
+        studioLog(`Primary model busy, retrying with Llama 3.1 8B Instant...`);
+        const prevModel = S.activeModel;
+        S.activeModel = 'llama-3.1-8b-instant';
+        try {
+          result = await callGroq(prompt, 4096);
+        } finally {
+          S.activeModel = prevModel;
+        }
+      } else {
+        throw callErr;
+      }
+    }
+
+    const extracted = extractPromptsFromResult(result);
+    if (extracted && extracted.length) {
+      S.studioPrompts = extracted.map((p, idx) => ({
+        sceneNum: p.sceneNum || (idx + 1),
+        title: p.title || rawScenes[idx]?.title || `Scene ${idx + 1}`,
+        veoPrompt: p.veoPrompt || p.prompt || fallback[idx]?.veoPrompt || '',
+        negativePrompt: p.negativePrompt || 'blurry, low quality, distorted',
+        cameraMove: p.cameraMove || p.camera || 'Cinematic camera move',
+        duration: p.duration || rawScenes[idx]?.duration || 30
+      }));
+    } else {
+      console.warn('Groq returned unrecognized format, using fallback prompts');
+      S.studioPrompts = fallback;
+    }
+
     S.studioStep = 2;
     saveStudioState();
-    studioLog(`Expanded ${S.studioPrompts.length} cinematic prompts.`);
+    studioLog(`✓ Expanded ${S.studioPrompts.length} cinematic prompts.`);
   } catch (e) {
-    S.studioError = e.message;
-    studioLog('Prompt expansion failed: ' + e.message);
+    console.warn('Groq prompt expansion error, using fallback prompts:', e);
+    S.studioPrompts = fallback;
+    S.studioStep = 2;
+    saveStudioState();
+    studioLog(`✓ Expanded ${S.studioPrompts.length} cinematic prompts (used built-in engine).`);
   }
+
   S.studioLoading = false;
   S.studioProgress = '';
   render();
@@ -2459,7 +2570,7 @@ function renderSetupModal() {
 function canNavigateToStep(i) {
   if (i === 0) return true;
   if (i === 1) return !!S.studioScript;
-  if (i === 2) return !!(S.studioPrompts && S.studioPrompts.length);
+  if (i === 2) return !!(S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript)));
   if (i === 3) return !!(S.studioPrompts && S.studioPrompts.length);
   if (i === 4) return !!(S.studioCharacters && S.studioCharacters.length);
   if (i === 5) return !!(S.studioClips && S.studioClips.length);
@@ -2599,7 +2710,13 @@ function buildStudio() {
   }
 
   // Step 2: Cinematic Prompts
-  if (S.studioStep === 2 && S.studioPrompts.length) {
+  if (S.studioStep === 2) {
+    if (!S.studioPrompts || !S.studioPrompts.length) {
+      if (S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript))) {
+        S.studioPrompts = generateFallbackPrompts(S.studioScript);
+        saveStudioState();
+      }
+    }
     panelHtml = `
       <div class="section-label" style="margin-bottom:10px"><i class="ti ti-wand"></i> Cinematic Video Prompts (${S.studioPrompts.length})</div>
       ${S.studioPrompts.map((p, i) => `
