@@ -199,10 +199,6 @@ function getProjectHistory() {
 
 function saveCurrentProjectToHistory() {
   const history = getProjectHistory();
-  const histFilter = S.historyModal.filter || 'all';
-  const displayedHistory = histFilter === 'active' 
-    ? history.filter(p => !p.archived)
-    : (histFilter === 'archived' ? history.filter(p => p.archived) : history);
   const title = S.studioTopic || 'Untitled Project';
   const id = 'proj_' + Date.now();
   const previewThumb = S.studioClips?.[0]?.imageUrl || S.studioCharacters?.[0]?.url || '';
@@ -643,6 +639,7 @@ async function loadSampleEpic() {
     if (!res.ok) throw new Error('Could not load epic_state.json');
     const data = await res.json();
     Object.assign(S, data);
+    S.studioStep = 0; // Default selected tab is Concept
     normalizeStudioCharacters();
     saveStudioState();
     studioLog('Loaded 7-Minute Kids Epic: 12 scenes, character art, and ready clips!');
@@ -1858,6 +1855,12 @@ function renderHistoryModal() {
   if (!S.historyModal.open) return '';
   const history = getProjectHistory();
   const driveToken = localStorage.getItem('gdrive-access-token');
+  const histFilter = S.historyModal.filter || 'all';
+  const activeCnt = history.filter(p => !p.archived).length;
+  const archivedCnt = history.filter(p => p.archived).length;
+  const displayedHistory = histFilter === 'active' 
+    ? history.filter(p => !p.archived)
+    : (histFilter === 'archived' ? history.filter(p => p.archived) : history);
 
   return `
     <div class="modal-overlay" onclick="if(event.target===this){S.historyModal.open=false;render();}">
@@ -2013,6 +2016,17 @@ function renderSetupModal() {
 }
 
 // ── Studio Main Panels (Steps 0–6) ────────────────────────────────────
+function canNavigateToStep(i) {
+  if (i === 0) return true;
+  if (i === 1) return !!S.studioScript;
+  if (i === 2) return !!(S.studioPrompts && S.studioPrompts.length);
+  if (i === 3) return !!(S.studioPrompts && S.studioPrompts.length);
+  if (i === 4) return !!(S.studioCharacters && S.studioCharacters.length);
+  if (i === 5) return !!(S.studioClips && S.studioClips.length);
+  if (i === 6) return !!(S.studioClips && S.studioClips.length);
+  return false;
+}
+
 function buildStudio() {
   const steps = [
     { icon: 'ti-bulb',       label: 'Concept' },
@@ -2027,7 +2041,7 @@ function buildStudio() {
   const stepperHtml = `
     <div class="studio-stepper">
       ${steps.map((st, i) => `
-        <div class="studio-step ${i === S.studioStep ? 'active' : ''} ${i < S.studioStep ? 'done' : ''}" onclick="${i <= S.studioStep ? `S.studioStep=${i};render()` : ''}">
+        <div class="studio-step ${i === S.studioStep ? 'active' : ''} ${i < S.studioStep || (i !== S.studioStep && canNavigateToStep(i)) ? 'done' : ''}" onclick="${canNavigateToStep(i) ? `S.studioStep=${i};render()` : ''}" style="${canNavigateToStep(i) ? 'cursor:pointer' : 'cursor:not-allowed;opacity:0.6'}">
           <div class="studio-step-dot"><i class="ti ${i < S.studioStep ? 'ti-check' : st.icon}"></i></div>
           <span class="studio-step-label">${st.label}</span>
         </div>
@@ -2483,7 +2497,7 @@ function render() {
             ${S.availableModels.map(m => `<option value="${m}" ${m === S.activeModel ? 'selected' : ''}>${m}</option>`).join('')}
           </select>
           <button class="api-status ${statusCls}" onclick="S.showSetup=true;render()">${statusTxt}</button>
-          <button class="btn-ghost" style="font-size:12px;padding:6px 12px;color:var(--brand);font-weight:600" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
+          <button class="btn-ghost" style="font-size:12px;padding:6px 12px;${S.historyModal.open ? 'color:var(--brand);font-weight:600;' : ''}" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
             <i class="ti ti-history"></i> History & Drive
           </button>
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('studio-import-file-input').click()" title="Import existing project JSON"><i class="ti ti-upload"></i> Import</button>
@@ -2502,9 +2516,11 @@ function init() {
   const restored = restoreStudioState();
   if (!restored) {
     loadSampleEpic();
-  } else {
-    render();
   }
+  // Ensure default selected tab on launch is Concept (Step 0)
+  S.studioStep = 0;
+  S.historyModal.open = false;
+  render();
 }
 
 init();

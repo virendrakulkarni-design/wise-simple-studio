@@ -1,5 +1,5 @@
 {
-  "studioStep": 5,
+  "studioStep": 0,
   "studioTopic": "The Hare & Tortoise Race with a Wild Twist (7-Minute Kids Epic)",
   "studioStyle": "kids3d",
   "studioDuration": "420s",
@@ -16,7 +16,7 @@
         "mood": "Comical, energetic, playful teasing",
         "lighting": "Golden morning sunbeams filtering through giant tree canopies",
         "camera": "Dynamic rotating tracking shot following Harry's supersonic blur",
-        "narration": "Meet Harry the Hare\u2014the fastest runner in Oakwood Forest, and definitely the biggest show-off!",
+        "narration": "Meet Harry the Hare—the fastest runner in Oakwood Forest, and definitely the biggest show-off!",
         "dialogue": "Harry: \"Hey Toby! Did you start walking today, or last Tuesday? Ha ha!\"",
         "soundEffect": "[ZOOM-WHOOSH!]",
         "characters": [
@@ -106,7 +106,7 @@
         "mood": "Hilarious cartoon gluttony and lazy overconfidence",
         "lighting": "Warm afternoon golden hour glow with floating sleepy Zzz bubbles",
         "camera": "Funny low-angle shot of stuffed Harry fast asleep on a grass mound",
-        "narration": "Harry was so overconfident he stopped for a giant carrot feast\u2014and then fell soundly asleep!",
+        "narration": "Harry was so overconfident he stopped for a giant carrot feast—and then fell soundly asleep!",
         "dialogue": "Harry: \"*YAWN*... That slowpoke won't catch up till next Christmas. Just a quick nap...\"",
         "soundEffect": "[CRUNCH-CRUNCH! SNORE...]",
         "characters": [
