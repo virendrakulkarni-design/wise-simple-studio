@@ -197,15 +197,71 @@ function getProjectHistory() {
   return sg('wise-studio-history') || [];
 }
 
+function getProjectContentFingerprint() {
+  return JSON.stringify({
+    topic: (S.studioTopic || '').trim(),
+    style: S.studioStyle || '',
+    duration: S.studioDuration || '',
+    aspect: S.studioAspect || '',
+    scriptTitle: S.studioScript?.title || '',
+    scenes: (S.studioScript?.scenes || []).map(sc => ({
+      idx: sc.sceneIndex,
+      char: sc.assignedCharacterId,
+      dialogue: sc.dialogue,
+      narration: sc.narration
+    })),
+    prompts: (S.studioPrompts || []).map(p => p.prompt || p.visualPrompt || ''),
+    characters: (S.studioCharacters || []).map(c => ({ id: c.id, name: c.name, url: c.url })),
+    clips: (S.studioClips || []).map(c => ({ id: c.id, status: c.status, imageUrl: c.imageUrl, videoUrl: c.videoUrl, cuts: c.cuts }))
+  });
+}
+
 function saveCurrentProjectToHistory() {
   const history = getProjectHistory();
-  const title = S.studioTopic || 'Untitled Project';
+  const title = (S.studioTopic || 'Untitled Project').trim() || 'Untitled Project';
+  const currentFingerprint = getProjectContentFingerprint();
+  const driveToken = localStorage.getItem('gdrive-access-token');
+
+  // Check if project has already been saved with identical content
+  const latestEntry = history[0];
+  const isDuplicate = latestEntry && (latestEntry.fingerprint === currentFingerprint || (
+    latestEntry.title === title &&
+    JSON.stringify(latestEntry.data?.studioScript) === JSON.stringify(S.studioScript) &&
+    JSON.stringify(latestEntry.data?.studioPrompts) === JSON.stringify(S.studioPrompts) &&
+    (latestEntry.data?.studioClips?.length || 0) === (S.studioClips?.length || 0) &&
+    (latestEntry.data?.studioCharacters?.length || 0) === (S.studioCharacters?.length || 0)
+  ));
+
+  if (isDuplicate) {
+    // If user connected Google Drive after saving locally, sync it now
+    if (driveToken && latestEntry.source !== 'drive') {
+      studioLog(`Syncing already saved project "${title}" to Google Drive...`);
+      saveProjectToGoogleDrive(latestEntry);
+      return;
+    }
+
+    studioLog(`ℹ️ Project "${title}" is already saved. No changes made.`);
+    S.historyNotice = {
+      type: 'info',
+      msg: `Project "${title}" is already saved — no changes detected.`
+    };
+    render();
+    setTimeout(() => {
+      if (S.historyNotice?.type === 'info') {
+        S.historyNotice = null;
+        render();
+      }
+    }, 4000);
+    return;
+  }
+
   const id = 'proj_' + Date.now();
   const previewThumb = S.studioClips?.[0]?.imageUrl || S.studioCharacters?.[0]?.url || '';
 
   const projectEntry = {
     id,
     title,
+    fingerprint: currentFingerprint,
     style: S.studioStyle,
     duration: S.studioDuration,
     aspect: S.studioAspect,
@@ -213,7 +269,7 @@ function saveCurrentProjectToHistory() {
     timestamp: new Date().toISOString(),
     formattedDate: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
     previewThumb,
-    source: localStorage.getItem('gdrive-access-token') ? 'drive' : 'local',
+    source: driveToken ? 'drive' : 'local',
     data: {
       studioStep: S.studioStep,
       studioTopic: S.studioTopic,
@@ -233,11 +289,37 @@ function saveCurrentProjectToHistory() {
   ss('wise-studio-history', history);
   studioLog(`Project "${title}" saved to history!`);
 
-  if (localStorage.getItem('gdrive-access-token')) {
+  S.historyNotice = {
+    type: 'success',
+    msg: `✓ Project "${title}" saved successfully!`
+  };
+  setTimeout(() => {
+    if (S.historyNotice?.type === 'success') {
+      S.historyNotice = null;
+      render();
+    }
+  }, 4000);
+
+  if (driveToken) {
     saveProjectToGoogleDrive(projectEntry);
   }
 
   render();
+}
+
+async function syncProjectToDrive(id) {
+  const history = getProjectHistory();
+  const entry = history.find(p => p.id === id);
+  if (!entry) return;
+
+  const token = localStorage.getItem('gdrive-access-token');
+  if (!token) {
+    connectGoogleDrive();
+    return;
+  }
+
+  studioLog(`Syncing "${entry.title}" to Google Drive...`);
+  await saveProjectToGoogleDrive(entry);
 }
 
 function loadProjectFromHistory(id) {
@@ -381,11 +463,9 @@ async function getOrCreateDriveFolder(token, folderName, parentId = null) {
   let query = "mimeType = 'application/vnd.google-apps.folder' and name = '" + escapedName + "' and trashed = false";
   if (parentId) {
     query += " and '" + parentId + "' in parents";
-  } else {
-    query += " and 'root' in parents";
   }
 
-  const searchUrl = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name)&spaces=drive';
+  const searchUrl = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(query) + '&fields=files(id,name,webViewLink)&spaces=drive';
   const searchRes = await fetch(searchUrl, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
@@ -402,20 +482,23 @@ async function getOrCreateDriveFolder(token, folderName, parentId = null) {
 
   const searchData = await searchRes.json();
   if (searchData.files && searchData.files.length > 0) {
-    return searchData.files[0].id;
+    const existing = searchData.files[0];
+    return {
+      id: existing.id,
+      name: existing.name,
+      webViewLink: existing.webViewLink || ('https://drive.google.com/drive/folders/' + existing.id)
+    };
   }
 
-  // Folder does not exist, create it
+  // Folder does not exist, create it in root or under parentId
   studioLog('📁 Creating folder "' + cleanName + '" on Google Drive...');
   const folderMetadata = {
     name: cleanName,
-    mimeType: 'application/vnd.google-apps.folder'
+    mimeType: 'application/vnd.google-apps.folder',
+    parents: parentId ? [parentId] : ['root']
   };
-  if (parentId) {
-    folderMetadata.parents = [parentId];
-  }
 
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -435,7 +518,11 @@ async function getOrCreateDriveFolder(token, folderName, parentId = null) {
   }
 
   const newFolder = await createRes.json();
-  return newFolder.id;
+  return {
+    id: newFolder.id,
+    name: newFolder.name,
+    webViewLink: newFolder.webViewLink || ('https://drive.google.com/drive/folders/' + newFolder.id)
+  };
 }
 
 
@@ -444,12 +531,12 @@ async function archiveProjectOnGoogleDrive(projectEntry) {
   if (!token) return;
   try {
     studioLog(`Archiving project "${projectEntry.title}" on Google Drive...`);
-    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
-    const archiveFolderId = await getOrCreateDriveFolder(token, 'Archive', studioFolderId);
+    const studioFolder = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    const archiveFolder = await getOrCreateDriveFolder(token, 'Archive', studioFolder.id);
     const targetId = projectEntry.driveFolderId || projectEntry.driveFileId;
     if (!targetId) return;
 
-    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + archiveFolderId + '&removeParents=' + studioFolderId + '&fields=id,parents';
+    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + archiveFolder.id + '&removeParents=' + studioFolder.id + '&fields=id,parents';
     const moveRes = await fetch(moveUrl, {
       method: 'PATCH',
       headers: {
@@ -471,12 +558,12 @@ async function restoreProjectOnGoogleDrive(projectEntry) {
   if (!token) return;
   try {
     studioLog(`Restoring project "${projectEntry.title}" on Google Drive...`);
-    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
-    const archiveFolderId = await getOrCreateDriveFolder(token, 'Archive', studioFolderId);
+    const studioFolder = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    const archiveFolder = await getOrCreateDriveFolder(token, 'Archive', studioFolder.id);
     const targetId = projectEntry.driveFolderId || projectEntry.driveFileId;
     if (!targetId) return;
 
-    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + studioFolderId + '&removeParents=' + archiveFolderId + '&fields=id,parents';
+    const moveUrl = 'https://www.googleapis.com/drive/v3/files/' + targetId + '?addParents=' + studioFolder.id + '&removeParents=' + archiveFolder.id + '&fields=id,parents';
     await fetch(moveUrl, {
       method: 'PATCH',
       headers: {
@@ -510,7 +597,10 @@ async function deleteProjectFromGoogleDrive(projectEntry) {
 
 async function saveProjectToGoogleDrive(projectEntry) {
   const token = localStorage.getItem('gdrive-access-token');
-  if (!token) return;
+  if (!token) {
+    studioLog('ℹ️ Google Drive is not connected. Connect in "History & Drive" to enable cloud backup.');
+    return;
+  }
 
   try {
     const rawTitle = (projectEntry.title || 'Untitled Project').trim() || 'Untitled Project';
@@ -518,10 +608,12 @@ async function saveProjectToGoogleDrive(projectEntry) {
     studioLog('Syncing project package to Google Drive under "My Animation Studio / ' + projectTitle + '"...');
 
     // 1. Ensure root studio folder 'My Animation Studio' exists
-    const studioFolderId = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    const studioFolder = await getOrCreateDriveFolder(token, 'My Animation Studio');
+    S.googleDriveStudioFolderId = studioFolder.id;
+    S.googleDriveStudioFolderUrl = studioFolder.webViewLink;
 
     // 2. Ensure project-specific subfolder exists within 'My Animation Studio'
-    const projectFolderId = await getOrCreateDriveFolder(token, projectTitle, studioFolderId);
+    const projectFolder = await getOrCreateDriveFolder(token, projectTitle, studioFolder.id);
 
     // 3. Upload project file inside the project folder
     const filename = `wise_studio_${projectTitle.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
@@ -529,14 +621,14 @@ async function saveProjectToGoogleDrive(projectEntry) {
       name: filename,
       mimeType: 'application/json',
       description: `Wise Simple Studio AI Story & Video Project - ${projectTitle}`,
-      parents: [projectFolderId]
+      parents: [projectFolder.id]
     };
 
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(projectEntry, null, 2)], { type: 'application/json' }));
 
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: form
@@ -546,15 +638,21 @@ async function saveProjectToGoogleDrive(projectEntry) {
       const driveFile = await res.json();
       projectEntry.source = 'drive';
       projectEntry.driveFileId = driveFile.id;
-      projectEntry.driveFolderId = projectFolderId;
-      projectEntry.driveStudioFolderId = studioFolderId;
+      projectEntry.driveFileUrl = driveFile.webViewLink || ('https://drive.google.com/file/d/' + driveFile.id + '/view');
+      projectEntry.driveFolderId = projectFolder.id;
+      projectEntry.driveFolderUrl = projectFolder.webViewLink || ('https://drive.google.com/drive/folders/' + projectFolder.id);
+      projectEntry.driveStudioFolderId = studioFolder.id;
+      projectEntry.driveStudioFolderUrl = studioFolder.webViewLink || ('https://drive.google.com/drive/folders/' + studioFolder.id);
+
+      S.lastSavedDriveFolderUrl = projectEntry.driveFolderUrl;
+
       const history = getProjectHistory();
       const idx = history.findIndex(p => p.id === projectEntry.id);
       if (idx !== -1) {
         history[idx] = projectEntry;
         ss('wise-studio-history', history);
       }
-      studioLog(`✓ Project saved to Google Drive: My Animation Studio / ${projectTitle} / ${filename}`);
+      studioLog(`✓ Project saved to Google Drive: My Animation Studio / ${projectTitle}`);
       render();
     } else {
       const errData = await res.json().catch(() => ({}));
@@ -1873,6 +1971,16 @@ function renderHistoryModal() {
           <button class="modal-close" onclick="S.historyModal.open=false;render()">&times;</button>
         </div>
 
+        ${S.historyNotice ? `
+          <div style="background:${S.historyNotice.type === 'info' ? 'rgba(59,130,246,0.15)' : 'rgba(16,185,129,0.15)'};border:1px solid ${S.historyNotice.type === 'info' ? '#3b82f6' : '#10b981'};color:${S.historyNotice.type === 'info' ? '#93c5fd' : '#6ee7b7'};padding:10px 14px;border-radius:var(--radius-md);margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600">
+            <div style="display:flex;align-items:center;gap:8px">
+              <i class="ti ${S.historyNotice.type === 'info' ? 'ti-info-circle' : 'ti-circle-check'}" style="font-size:16px"></i>
+              <span>${S.historyNotice.msg}</span>
+            </div>
+            <button onclick="S.historyNotice=null;render()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:16px">&times;</button>
+          </div>
+        ` : ''}
+
         <!-- Google Drive Connection Bar -->
         <div style="background:var(--surface-2);border-radius:var(--radius-md);padding:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:10px">
@@ -1886,13 +1994,16 @@ function renderHistoryModal() {
               </div>
             </div>
           </div>
-          <div style="display:flex;gap:8px">
-            ${!driveToken ? `
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            ${driveToken ? `
+              <a href="${S.googleDriveStudioFolderUrl || (history.find(p => p.driveStudioFolderUrl)?.driveStudioFolderUrl) || 'https://drive.google.com/drive/search?q=My%20Animation%20Studio'}" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 12px;font-size:11px;color:#4285f4;text-decoration:none;display:inline-flex;align-items:center;gap:5px;font-weight:600;border:1px solid rgba(66,133,244,0.3);background:rgba(66,133,244,0.06);border-radius:6px" title="Open My Animation Studio folder in Google Drive">
+                <i class="ti ti-folder"></i> Open "My Animation Studio" in Drive <i class="ti ti-external-link" style="font-size:10px"></i>
+              </a>
+              <button class="btn-ghost" style="padding:6px 12px;font-size:11px" onclick="localStorage.removeItem('gdrive-access-token');S.googleDriveConnected=false;render()">Disconnect</button>
+            ` : `
               <button class="btn-primary" style="padding:6px 14px;font-size:12px;background:linear-gradient(135deg,#4285f4,#34a853)" onclick="connectGoogleDrive()">
                 <i class="ti ti-login"></i> Connect Google Drive
               </button>
-            ` : `
-              <button class="btn-ghost" style="padding:6px 12px;font-size:11px" onclick="localStorage.removeItem('gdrive-access-token');S.googleDriveConnected=false;render()">Disconnect</button>
             `}
             <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="saveCurrentProjectToHistory()">
               <i class="ti ti-device-floppy"></i> Save Current Project
@@ -1958,14 +2069,14 @@ function renderHistoryModal() {
                       <i class="ti ti-rotate-clockwise"></i> Restore
                     </button>
                   ` : ''}
-                  ${proj.driveFolderId ? `
-                    <a href="https://drive.google.com/drive/folders/${proj.driveFolderId}" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 10px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;color:#4285f4" title="Open project folder in Google Drive: My Animation Studio / ${proj.title}">
-                      <i class="ti ti-brand-google-drive"></i>
+                  ${(proj.source === 'drive' || proj.driveFolderId || proj.driveFileId) ? `
+                    <a href="${proj.driveFolderUrl || (proj.driveFolderId ? 'https://drive.google.com/drive/folders/' + proj.driveFolderId : (proj.driveFileUrl || 'https://drive.google.com/drive/search?q=' + encodeURIComponent(proj.title)))}" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 10px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:4px;color:#4285f4;font-weight:600;border:1px solid rgba(66,133,244,0.3);background:rgba(66,133,244,0.06);border-radius:6px" title="Open project directly in Google Drive">
+                      <i class="ti ti-brand-google-drive"></i> Open in Drive <i class="ti ti-external-link" style="font-size:10px"></i>
                     </a>
-                  ` : (proj.driveFileId ? `
-                    <a href="https://drive.google.com/file/d/${proj.driveFileId}/view" target="_blank" rel="noopener" class="btn-ghost" style="padding:6px 10px;font-size:12px;text-decoration:none;display:inline-flex;align-items:center;color:#4285f4" title="View file in Google Drive">
-                      <i class="ti ti-brand-google-drive"></i>
-                    </a>
+                  ` : (driveToken ? `
+                    <button class="btn-ghost" style="padding:6px 10px;font-size:12px;color:#4285f4;display:inline-flex;align-items:center;gap:4px" onclick="syncProjectToDrive('${proj.id}')" title="Upload this project to Google Drive">
+                      <i class="ti ti-cloud-upload"></i> Sync to Drive
+                    </button>
                   ` : '')}
                   <button class="btn-ghost" style="padding:6px 10px;color:#ef4444;font-size:12px" onclick="deleteProjectFromHistory('${proj.id}')" title="Delete project">
                     <i class="ti ti-trash"></i>
@@ -2459,8 +2570,13 @@ function buildStudio() {
           </button>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
         <button class="btn-primary" onclick="saveCurrentProjectToHistory()"><i class="ti ti-device-floppy"></i> Save to History & Drive</button>
+        ${(S.lastSavedDriveFolderUrl || getProjectHistory().find(p => p.driveFolderUrl)?.driveFolderUrl) ? `
+          <a href="${S.lastSavedDriveFolderUrl || getProjectHistory().find(p => p.driveFolderUrl)?.driveFolderUrl}" target="_blank" rel="noopener" class="btn-ghost" style="padding:8px 14px;font-size:13px;color:#4285f4;text-decoration:none;display:inline-flex;align-items:center;gap:6px;font-weight:600;border:1px solid rgba(66,133,244,0.3);background:rgba(66,133,244,0.06);border-radius:6px" title="Open saved folder in Google Drive">
+            <i class="ti ti-brand-google-drive"></i> Open in Google Drive <i class="ti ti-external-link" style="font-size:11px"></i>
+          </a>
+        ` : ''}
         <button class="btn-ghost" onclick="exportStudioJSON()"><i class="ti ti-file-export"></i> Save Project JSON</button>
         <button class="btn-ghost" onclick="exportStudioScript()"><i class="ti ti-copy"></i> Copy Script</button>
         <button class="btn-ghost" onclick="S.studioStep=5;render()"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
