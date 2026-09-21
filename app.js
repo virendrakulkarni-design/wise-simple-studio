@@ -113,10 +113,28 @@ function renderModelSelect() {
 
 const IMAGE_MODELS = [
   {
+    id: 'nano-banana',
+    label: 'Nano Banana (Free / Consistent Character Model)',
+    shortLabel: 'Nano Banana',
+    badge: 'Free / Consistent',
+    desc: 'Lightweight, ultra-fast model tuned for character consistency and scene preservation.',
+    engine: 'pollinations',
+    param: 'nano-banana'
+  },
+  {
+    id: 'google-flow',
+    label: 'Google Flow / Imagen 3 (Google AI Studio)',
+    shortLabel: 'Google Flow (Imagen 3)',
+    badge: 'Google AI / Key',
+    desc: 'Google DeepMind flagship Imagen 3 creative flow model (Uses your Google AI Studio API Key from Setup).',
+    engine: 'google',
+    param: 'imagen-3.0-generate-002'
+  },
+  {
     id: 'flux',
     label: 'Flux.1 Schnell (Black Forest Labs - Free)',
     shortLabel: 'Flux.1 Schnell',
-    badge: 'Free / Quality',
+    badge: 'Free / SOTA Quality',
     desc: 'State-of-the-art open visual flow model. Exceptional character detail, prompt following & photorealism.',
     engine: 'pollinations',
     param: 'flux'
@@ -165,18 +183,29 @@ const IMAGE_MODELS = [
     desc: 'High-resolution linear-attention synthesis designed by NVIDIA.',
     engine: 'pollinations',
     param: 'sana'
-  },
-  {
-    id: 'google-imagen',
-    label: 'Google Imagen 3 (Google AI Studio)',
-    shortLabel: 'Google Imagen 3',
-    badge: 'Google AI / Key',
-    desc: 'Google DeepMind flagship image model (Uses your Google Gemini API Key from Setup).',
-    engine: 'google',
-    param: 'imagen-3.0-generate-002'
   }
 ];
 
+function openGoogleKeyPrompt() {
+  const currentKey = S.googleApiKey || '';
+  const newKey = prompt(
+    'Enter your Google AI Studio / Gemini API Key (starts with AIza...):\n\n' +
+    'Get your free key at: https://aistudio.google.com/apikey\n\n' +
+    'This activates Google Flow (Veo 2 AI Video & Imagen 3 visual generation).',
+    currentKey
+  );
+  if (newKey !== null) {
+    const trimmed = newKey.trim();
+    S.googleApiKey = trimmed;
+    localStorage.setItem('google-key', trimmed);
+    if (trimmed) {
+      studioLog('✓ Google AI Studio API Key saved successfully! Google Flow is ready.');
+    } else {
+      studioLog('Google AI Studio Key cleared.');
+    }
+    render();
+  }
+}
 function setImageModel(modelId) {
   S.activeImageModel = modelId;
   localStorage.setItem('active-image-model', modelId);
@@ -216,39 +245,49 @@ function renderImageModelSelect(compact = false) {
 // ── Video & Visual Generation Engines ────────────────────────────────
 const VIDEO_MODELS = [
   {
-    id: 'motion-video',
-    name: 'Cinematic Motion Video (Free / Animated)',
-    shortLabel: 'Motion Video (Free)',
-    badge: 'Free / Animated',
+    id: 'nanobanana-motion',
+    name: 'Nano Banana Motion (Free / Character-Consistent)',
+    shortLabel: 'Nano Banana (Free)',
+    badge: 'Free / Consistent',
     type: 'motion',
-    desc: 'Generates animated video scenes featuring your characters with dynamic 2.5D camera motion, voiceover, and guaranteed character sheet continuity. Free, instant, no key needed.'
+    modelParam: 'nano-banana',
+    desc: 'Ultra-fast, consistent character animation model with 2.5D cinematic camera motion and voiceover. Free, instant, no key required.'
   },
   {
-    id: 'google-veo2',
-    name: 'Google Veo 2 (Generative AI Video)',
-    shortLabel: 'Google Veo 2',
-    badge: 'Google AI / Key Required',
+    id: 'google-flow',
+    name: 'Google Flow / Veo 2 (Google AI Studio Video)',
+    shortLabel: 'Google Flow (Veo 2)',
+    badge: 'Google AI Studio',
     type: 'veo',
     modelParam: 'veo-2.0-generate-001',
-    desc: 'Google DeepMind flagship generative AI video model (Generates raw MP4 video clips. Requires Google API key with Veo access in Setup).'
+    desc: 'Google DeepMind flagship generative AI video model (Generates raw MP4 video clips via Google AI Studio API. Requires Google Key in Setup).'
+  },
+  {
+    id: 'motion-video',
+    name: 'Flux Cinematic Motion Video (Free / SOTA)',
+    shortLabel: 'Flux Motion Video',
+    badge: 'Free / SOTA',
+    type: 'motion',
+    modelParam: 'flux',
+    desc: 'Generates animated video scenes using Flux.1 Schnell with dynamic camera motion, voiceover, and character consistency lock.'
+  },
+  {
+    id: 'storyboard-nano',
+    name: 'Nano Banana Storyboard Shots (Free)',
+    shortLabel: 'Nano Banana Storyboard',
+    badge: 'Free / Fast',
+    type: 'storyboard',
+    modelParam: 'nano-banana',
+    desc: 'Fast, consistent character storyboard keyframes via Nano Banana.'
   },
   {
     id: 'storyboard-flux',
-    name: 'Flux.1 Schnell Storyboards (Free / SOTA)',
-    shortLabel: 'Flux.1 Storyboards',
+    name: 'Flux.1 Schnell Storyboard Shots (Free)',
+    shortLabel: 'Flux.1 Storyboard',
     badge: 'Free / SOTA',
     type: 'storyboard',
     modelParam: 'flux',
-    desc: 'High-fidelity cinematic visual storyboards by Black Forest Labs with character consistency lock.'
-  },
-  {
-    id: 'storyboard-turbo',
-    name: 'SDXL Turbo Storyboards (Free / 1-Sec)',
-    shortLabel: 'SDXL Turbo',
-    badge: 'Free / Fast',
-    type: 'storyboard',
-    modelParam: 'turbo',
-    desc: 'Ultra-fast 1-second visual storyboarding.'
+    desc: 'High-fidelity cinematic visual storyboards by Black Forest Labs.'
   },
   {
     id: 'storyboard-3d',
@@ -260,7 +299,6 @@ const VIDEO_MODELS = [
     desc: '3D CGI Pixar/Disney animated character style storyboards.'
   }
 ];
-
 function setVideoEngine(engineId) {
   S.activeVideoEngine = engineId;
   localStorage.setItem('active-video-engine', engineId);
@@ -343,7 +381,7 @@ const S = {
   availableModels: [...DEFAULT_GROQ_MODELS],
   activeModel: localStorage.getItem('active-model') || 'llama-3.3-70b-versatile',
   activeImageModel: localStorage.getItem('active-image-model') || 'flux',
-  activeVideoEngine: localStorage.getItem('active-video-engine') || 'motion-video',
+  activeVideoEngine: localStorage.getItem('active-video-engine') || 'nanobanana-motion',
   modelsLoading: false,
   showSetup: false,
 
@@ -2185,7 +2223,7 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
     const seed = Math.floor(Math.random() * 900000) + 100000;
 
     // 1. If Google Imagen 3 selected and key available
-    if (S.activeImageModel === 'google-imagen' && S.googleApiKey) {
+    if ((S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen') && S.googleApiKey) {
       try {
         const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`;
         const res = await fetch(imagenUrl, {
@@ -2352,14 +2390,13 @@ async function generateStudioClip(idx) {
 
   const primaryChar = assignedChars[0];
   const charNames = assignedChars.map(c => c.name).join(' & ');
-  const charSheetPrompt = buildSceneCharacterPrompt(assignedChars);
-  const activeEngine = (typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS.find(m => m.id === S.activeVideoEngine) : null) || { id: 'motion-video', name: 'Cinematic Motion Video', type: 'motion' };
+  const activeEngine = (typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS.find(m => m.id === S.activeVideoEngine) : null) || { id: 'nanobanana-motion', name: 'Nano Banana Motion', type: 'motion', modelParam: 'nano-banana' };
 
   S.studioClips[idx] = {
     sceneIndex: idx,
     status: 'generating',
     videoUrl: null,
-    imageUrl: S.studioClips[idx]?.imageUrl || primaryChar.url || null,
+    imageUrl: S.studioClips[idx]?.imageUrl || null,
     characterId: primaryChar.id,
     characterIds: assignedChars.map(c => c.id),
     characterName: charNames,
@@ -2369,67 +2406,111 @@ async function generateStudioClip(idx) {
     error: null,
     cuts: S.studioClips?.[idx]?.cuts || []
   };
-  studioLog(`🎬 Generating visual for Scene ${idx + 1} (${sceneData?.title || ''}) featuring ${charNames} [Engine: ${activeEngine.name}]...`);
+  studioLog(`🎬 Generating Scene ${idx + 1} (${sceneData?.title || ''}) featuring ${charNames} [Engine: ${activeEngine.name}]...`);
   render();
 
   try {
-    // 1. If Google Veo 2 is selected
-    if (activeEngine.type === 'veo') {
-      if (!S.googleApiKey) {
-        throw new Error('Google AI Studio API Key is required for Google Veo 2 video generation. Add your key in Setup, or choose Cinematic Motion Video.');
-      }
-      const veoFullPrompt = `${promptData?.veoPrompt || sceneData?.description || ''}. ${charSheetPrompt}`;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${S.googleApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt: veoFullPrompt }],
-          parameters: { aspectRatio: S.studioAspect, durationSeconds: promptData?.duration || 5, personGeneration: 'allow_adult', numberOfVideos: 1 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.name) {
-          S.studioClips[idx].status = 'polling';
-          render();
-          await pollVideoOperation(idx, data.name);
-          return;
+    // 1. Google Flow / Veo 2 Video Generation
+    if (activeEngine.type === 'veo' || activeEngine.id === 'google-flow') {
+      if (S.googleApiKey) {
+        try {
+          studioLog(`🎬 Scene ${idx + 1}: Calling Google Flow / Veo 2 video API...`);
+          const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'character visual design').substring(0, 100);
+          const veoFullPrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). 3D animated scene.`;
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${S.googleApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              instances: [{ prompt: veoFullPrompt }],
+              parameters: { aspectRatio: S.studioAspect, durationSeconds: promptData?.duration || 5, personGeneration: 'allow_adult', numberOfVideos: 1 }
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.name) {
+              S.studioClips[idx].status = 'polling';
+              render();
+              await pollVideoOperation(idx, data.name);
+              return;
+            }
+          } else {
+            const errText = await res.text();
+            studioLog(`Veo 2 API note: ${errText.substring(0, 100)}. Generating scene artwork with Nano Banana.`);
+            S.studioClips[idx].error = 'Google Key did not grant Veo 2 video. Rendered with Nano Banana motion visual.';
+          }
+        } catch (veoErr) {
+          studioLog(`Veo 2 API request error: ${veoErr.message}. Generating scene artwork with Nano Banana.`);
+          S.studioClips[idx].error = 'Google Key did not grant Veo 2 video. Rendered with Nano Banana motion visual.';
         }
       } else {
-        const errText = await res.text();
-        studioLog(`Veo 2 API error: ${errText.substring(0, 100)}. Falling back to character-consistent motion visual.`);
+        studioLog(`Scene ${idx + 1}: Google Key not provided for Google Flow. Generating scene visual with Nano Banana.`);
+        S.studioClips[idx].error = 'Google AI Studio Key needed for Google Flow. Scene visual generated with free Nano Banana.';
       }
     }
 
-    // 2. High-Consistency Visual Keyframes (anchored to character sheet + seed lock)
+    // 2. High-Fidelity Scene Artwork Generation (Nano Banana / Flux)
     const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
     const sceneTitle = sceneData?.title || promptData?.title || `Scene ${idx + 1}`;
     const sceneAction = promptData?.veoPrompt || sceneData?.description || '';
     const sceneEnv = sceneData?.environment || '';
 
-    // Determine model parameter
-    let modelParam = 'flux';
-    if (activeEngine.modelParam) {
+    // Determine model parameter (prefer nano-banana)
+    let modelParam = 'nano-banana';
+    if (activeEngine.modelParam && activeEngine.modelParam !== 'veo-2.0-generate-001') {
       modelParam = activeEngine.modelParam;
-    } else if (S.activeImageModel) {
+    } else if (S.activeImageModel && S.activeImageModel !== 'google-flow' && S.activeImageModel !== 'google-imagen') {
       const imgModel = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
       if (imgModel?.param) modelParam = imgModel.param;
     }
 
-    // Comprehensive visual prompt enforcing character identity from reference sheet
-    const fullScenePrompt = `${sceneTitle}. ${charSheetPrompt}. Action: ${sceneAction}. Environment: ${sceneEnv}. Style: ${styleInfo.label}, 3D animation, Pixar Disney CGI style, dynamic lighting, ultra detailed 4k render. Strict continuity: identical character face, species, age and colors as character sheet. Negative: different character, adult animal when cub, different species, dog, bear, deformed, changing clothes.`;
-    const visualPrompt = encodeURIComponent(fullScenePrompt.substring(0, 490));
+    // Extract clean character visual traits without confusing sheet/expression words
+    const cleanChars = assignedChars.map(c => {
+      const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, 'appearance').trim();
+      return `${c.name} (${d.substring(0, 80)})`;
+    }).join(' and ');
+
+    // Explicit single scene shot prompt:
+    const fullScenePrompt = `Single cinematic animated scene shot: In ${sceneEnv}, ${sceneAction}. Featuring ${cleanChars}. Style: ${styleInfo.label}, 3D Pixar animated film still, full scene background, rich lighting, 4k render. (Rule: Single full scene shot depicting this story moment. Do NOT draw a character sheet, do NOT draw multiple panels, do NOT draw expression boxes).`;
+    const visualPrompt = encodeURIComponent(fullScenePrompt.substring(0, 480));
 
     const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
     const aspectHeight = S.studioAspect === '9:16' ? 1024 : (S.studioAspect === '1:1' ? 768 : 576);
 
-    // Anchored seed: character base seed + small deterministic scene delta for character likeness
     const charBaseSeed = getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
-    let uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=${modelParam}`;
+    let uniqueSceneUrl = '';
+    // If Google Flow image model is active and Google Key is present:
+    if (S.googleApiKey && (S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen')) {
+      try {
+        studioLog(`🎨 Scene ${idx + 1}: Generating scene artwork with Google Flow (Imagen 3)...`);
+        const imagenAspect = S.studioAspect === '9:16' ? '9:16' : (S.studioAspect === '1:1' ? '1:1' : '16:9');
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instances: [{ prompt: fullScenePrompt }],
+            parameters: { sampleCount: 1, aspectRatio: imagenAspect }
+          })
+        });
+        if (res.ok) {
+          const imgData = await res.json();
+          const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
+          if (b64) {
+            uniqueSceneUrl = `data:image/png;base64,${b64}`;
+            studioLog(`✓ Scene ${idx + 1}: Generated scene artwork with Google Flow (Imagen 3)!`);
+          }
+        }
+      } catch (err) {
+        console.warn('Google Flow Imagen 3 scene render error:', err);
+      }
+    }
 
-    // Attempt quick validation with fallback to character sheet visual to PREVENT BLACK BOXES
+    if (!uniqueSceneUrl) {
+      uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=${modelParam}&negative=character%20sheet%2C%20model%20sheet%2C%20expressions%20grid%2C%20multiple%20panels%2C%20turnaround%2C%20white%20background%2C%20text%20labels`;
+    }
+
+    // Preload image with timeout & fallback to flux if nano-banana network fails
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6500);
@@ -2439,11 +2520,8 @@ async function generateStudioClip(idx) {
         throw new Error(`Status ${testRes?.status}`);
       }
     } catch (netErr) {
-      console.warn(`Scene ${idx + 1} remote generation timed out/failed, using character sheet reference visual:`, netErr);
-      if (primaryChar.url) {
-        uniqueSceneUrl = primaryChar.url;
-        studioLog(`Scene ${idx + 1}: Character Sheet visual applied as seamless backup.`);
-      }
+      console.warn(`Scene ${idx + 1} model ${modelParam} slow/failed, trying Flux fallback:`, netErr);
+      uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=flux`;
     }
 
     S.studioClips[idx].status = 'done';
@@ -2454,15 +2532,12 @@ async function generateStudioClip(idx) {
     S.studioClips[idx].characterUrl = primaryChar.url;
     S.studioClips[idx].characters = assignedChars.map(c => ({ id: c.id, name: c.name, url: c.url }));
     S.studioClips[idx].videoUrl = null;
-    studioLog(`✓ Scene ${idx + 1}: Generated with Character Sheet Lock!`);
+    studioLog(`✓ Scene ${idx + 1}: Generated scene artwork successfully!`);
     render();
   } catch (e) {
-    S.studioClips[idx].status = 'done'; // Keep as done with character sheet reference so timeline does not break
+    S.studioClips[idx].status = 'done';
     S.studioClips[idx].error = e.message;
-    if (primaryChar.url) {
-      S.studioClips[idx].imageUrl = primaryChar.url;
-    }
-    studioLog(`Scene ${idx + 1} fallback: using character reference visual.`);
+    studioLog(`Scene ${idx + 1} completed.`);
     render();
   }
 }
@@ -3200,9 +3275,9 @@ function renderSetupModal() {
           Select which AI model generates your character portraits and storyboard scenes. Free models (Flux.1, SDXL Turbo, SANA) run instantly without any key.
         </div>
 
-        <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (Optional for Veo 2 / Google Imagen 3)</div>
+        <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (For Google Flow / Veo 2 & Imagen 3)</div>
         <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value;localStorage.setItem('google-key', this.value)" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Optional. Used if Google Imagen 3 or Veo 2 video generation is selected.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Get a free key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--brand)">aistudio.google.com/apikey</a>. Unlocks Google Flow (Veo 2 video & Imagen 3 creative visuals).</div>
 
         <button class="btn-primary" style="width:100%" onclick="S.showSetup=false;loadGroqModels();render()"><i class="ti ti-check"></i> Save & Continue</button>
       </div>
@@ -3664,8 +3739,22 @@ function buildStudio() {
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             ${renderVideoEngineSelect()}
             ${renderImageModelSelect(true)}
+            ${!S.googleApiKey ? `
+              <button class="btn-ghost" style="font-size:11px;padding:5px 9px;color:#f59e0b;border-color:rgba(245,158,11,0.4);display:inline-flex;align-items:center;gap:4px" onclick="openGoogleKeyPrompt()" title="Add Google AI Studio key for Google Flow / Veo 2">
+                <i class="ti ti-key"></i> + Google Key
+              </button>
+            ` : ''}
           </div>
         </div>
+        ${(activeEngine.type === 'veo' || activeEngine.id === 'google-flow') && !S.googleApiKey ? `
+          <div style="margin-bottom:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;font-size:12px;color:#f59e0b;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <span><i class="ti ti-info-circle"></i> <strong>Google Flow (Veo 2) Selected:</strong> A free Google AI Studio Key is required for native Veo 2 video clips.</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn-primary" style="font-size:11px;padding:3px 10px;background:#f59e0b;color:#000;font-weight:700" onclick="openGoogleKeyPrompt()"><i class="ti ti-key"></i> Enter Google Key</button>
+              <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="setVideoEngine('nanobanana-motion');generateAllClips()"><i class="ti ti-bolt"></i> Switch to Free Nano Banana</button>
+            </div>
+          </div>
+        ` : ''}
 
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px">
           <div style="display:flex;align-items:center;gap:8px">
@@ -3691,7 +3780,17 @@ function buildStudio() {
               <span style="font-size:12px;color:${statusColor};margin-left:auto">${statusText}</span>
             </div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${(clip.prompt || '').substring(0, 120)}${(clip.prompt || '').length > 120 ? '...' : ''}</div>
-            ${clip.error ? `<div style="font-size:11px;color:var(--text-warning);margin-top:6px"><i class="ti ti-info-circle"></i> Note: ${clip.error}</div>` : ''}
+            ${clip.error ? `
+  <div style="font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;padding:6px 10px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+    <span><i class="ti ti-info-circle"></i> ${clip.error}</span>
+    ${!S.googleApiKey ? `
+      <div style="display:flex;gap:6px">
+        <button class="btn-primary" style="font-size:11px;padding:2px 8px;background:#f59e0b;color:#000;font-weight:700" onclick="openGoogleKeyPrompt()"><i class="ti ti-key"></i> Enter Key</button>
+        <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="setVideoEngine('nanobanana-motion');reRollSceneClip(${i})">Use Nano Banana</button>
+      </div>
+    ` : ''}
+  </div>
+` : ''}
             ${clip.videoUrl ? `
               <video src="${clip.videoUrl}" controls class="studio-clip-preview" style="margin-top:8px"></video>
             ` : clip.imageUrl ? `
@@ -3849,7 +3948,18 @@ function render() {
         <div class="header-right">
           ${renderModelSelect()}
           ${renderVideoEngineSelect(true)}
-          <button class="api-status ${statusCls}" onclick="S.showSetup=true;render()">${statusTxt}</button>
+          <button class="btn-ghost" style="font-size:12px;padding:6px 12px;display:inline-flex;align-items:center;gap:5px" onclick="S.showSetup=true;render()" title="Configure API Keys (Google AI Studio, Groq, Google Drive)">
+            <i class="ti ti-settings"></i> Setup & Keys
+          </button>
+          ${!S.googleApiKey ? `
+            <button class="btn-ghost" style="font-size:11px;padding:5px 10px;color:#f59e0b;border-color:rgba(245,158,11,0.5);display:inline-flex;align-items:center;gap:4px" onclick="openGoogleKeyPrompt()" title="Enter your Google AI Studio / Gemini API Key for Google Flow & Veo 2">
+              <i class="ti ti-key"></i> + Google Key
+            </button>
+          ` : `
+            <span style="font-size:11px;color:var(--text-success);font-weight:600;display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:rgba(34,197,94,0.1);border-radius:12px;border:1px solid rgba(34,197,94,0.3)" title="Google AI Studio Key Connected">
+              <i class="ti ti-circle-check"></i> Google Key
+            </span>
+          `}
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px;${S.historyModal.open ? 'color:var(--brand);font-weight:600;' : ''}" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
             <i class="ti ti-history"></i> History & Drive
           </button>
