@@ -179,6 +179,10 @@ const S = {
   archivedCharacters: [],
   studioClips: [],
   studioLoading: false,
+  charPromptInput: '',
+  charNameInput: '',
+  charRoleInput: '',
+  selectedScriptChar: '',
   studioProgress: '',
   studioError: '',
   studioLogs: [],
@@ -1672,78 +1676,343 @@ function handleCharacterDrop(event) {
   }
 }
 
-async function generateCharacterRef() {
-  const mainChar = S.studioScript?.mainCharacter;
-  if (!mainChar || mainChar === 'none') {
+
+// ── AI Character Creation & Prompt Generation Studio ────────────────
+function detectStoryCharacters() {
+  const list = [];
+  const seen = new Set();
+
+  function addChar(name, desc) {
+    if (!name) return;
+    const cleanName = name.trim().replace(/^[^a-zA-Z0-9]+/, '').replace(/[:\-].*$/, '').trim();
+    if (!cleanName || cleanName.length < 2) return;
+    const key = cleanName.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      list.push({ name: cleanName, description: (desc || '').trim() });
+    }
+  }
+
+  // 1. Check S.studioScript.mainCharacter
+  if (S.studioScript?.mainCharacter && S.studioScript.mainCharacter !== 'none') {
+    const raw = S.studioScript.mainCharacter;
+    const parts = raw.split(/[;\n]/);
+    parts.forEach(p => {
+      if (p.includes(':')) {
+        const [n, ...rest] = p.split(':');
+        addChar(n, rest.join(':'));
+      } else {
+        addChar(p, raw);
+      }
+    });
+  }
+
+  // 2. Check scenes[].characters
+  const scenes = S.studioScript?.scenes || [];
+  scenes.forEach(sc => {
+    if (Array.isArray(sc.characters)) {
+      sc.characters.forEach(c => addChar(c, `Appears in ${sc.title || 'story'}`));
+    } else if (typeof sc.characters === 'string') {
+      sc.characters.split(/[,;\n]/).forEach(c => addChar(c, `Appears in ${sc.title || 'story'}`));
+    }
+  });
+
+  // 3. Check existing studioCharacters
+  (S.studioCharacters || []).forEach(c => {
+    addChar(c.name, c.description);
+  });
+
+  return list;
+}
+
+function generateSampleCharacterPrompt(charName = '', charDesc = '') {
+  const name = (charName || S.charNameInput || 'Hero Character').trim();
+  const desc = (charDesc || S.charRoleInput || (S.studioScript?.mainCharacter || S.studioTopic || 'animated protagonist')).trim();
+  const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
+  const styleLabel = styleInfo.label;
+  const styleDesc = styleInfo.desc || '';
+
+  const scenes = S.studioScript?.scenes || [];
+  const envContext = scenes[0]?.environment || 'vibrant cinematic world';
+
+  let prompt = `Character portrait of ${name}, ${desc}. ${styleLabel} aesthetic (${styleDesc}), 3D Disney Pixar animated feature film concept art, expressive friendly face, charming eyes with vibrant specular highlights, detailed clothing and textures, soft studio rim lighting, volumetric soft shadows, 8k render, octane render, clean studio background, centered character portrait.`;
+
+  if (S.studioStyle === 'anime') {
+    prompt = `Character portrait concept art of ${name}, ${desc}. Studio Ghibli and Makoto Shinkai inspired high quality anime art style, vibrant colors, expressive eyes, hand-drawn anime aesthetic, detailed hair, clean studio lighting, 8k masterpiece.`;
+  } else if (S.studioStyle === 'clay') {
+    prompt = `Character portrait model of ${name}, ${desc}. Stop-motion claymation and plasticine style, Aardman Wallace and Gromit aesthetic, tactile clay textures with subtle fingerprint impressions, warm studio lighting, 8k macro photography render.`;
+  } else if (S.studioStyle === 'storybook') {
+    prompt = `Classic storybook watercolor illustration of ${name}, ${desc}. Beatrix Potter and vintage fairytale book illustration, soft pencil outlines, delicate watercolor washes, warm paper texture, whimsical, charming, high resolution.`;
+  } else if (S.studioStyle === 'retro') {
+    prompt = `Retro 1930s rubber hose cartoon character illustration of ${name}, ${desc}. Vintage classic animation style, Cuphead and early Fleischer studio aesthetic, bold ink lines, monochrome or vintage Technicolor, film grain, charming vintage cartoon.`;
+  }
+
+  return prompt;
+}
+
+function handleSelectScriptChar(name) {
+  S.selectedScriptChar = name;
+  if (name === '__new__') {
+    S.charNameInput = '';
+    S.charRoleInput = '';
+    S.charPromptInput = '';
+    render();
+    return;
+  }
+  const chars = detectStoryCharacters();
+  const found = chars.find(c => c.name === name);
+  if (found) {
+    S.charNameInput = found.name;
+    S.charRoleInput = found.description;
+    S.charPromptInput = generateSampleCharacterPrompt(found.name, found.description);
+    render();
+  }
+}
+
+function handleGenerateSamplePrompt() {
+  const name = S.charNameInput.trim() || 'Hero Character';
+  const role = S.charRoleInput.trim() || '';
+  S.charPromptInput = generateSampleCharacterPrompt(name, role);
+  render();
+}
+
+function appendPromptModifier(mod) {
+  const current = S.charPromptInput || '';
+  if (!current.includes(mod)) {
+    S.charPromptInput = current ? `${current.trim()}, ${mod}` : mod;
+    render();
+  }
+}
+
+function editCharacterPrompt(id) {
+  const char = (S.studioCharacters || []).find(c => c.id === id);
+  if (char) {
+    S.charNameInput = char.name;
+    S.charRoleInput = char.description || '';
+    S.charPromptInput = char.prompt || generateSampleCharacterPrompt(char.name, char.description);
+    render();
+    window.scrollTo({ top: 180, behavior: 'smooth' });
+  }
+}
+
+function generateLocalCharacterAvatar(name, role) {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 768;
+    canvas.height = 768;
+    const ctx = canvas.getContext('2d');
+
+    const grad = ctx.createLinearGradient(0, 0, 768, 768);
+    grad.addColorStop(0, '#1e1b4b');
+    grad.addColorStop(0.5, '#3b82f6');
+    grad.addColorStop(1, '#10b981');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 768, 768);
+
+    ctx.beginPath();
+    ctx.arc(384, 384, 250, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#34d399';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(384, 310, 110, 0, Math.PI * 2);
+    ctx.fillStyle = '#fde047';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(340, 300, 14, 0, Math.PI * 2);
+    ctx.arc(428, 300, 14, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(384, 335, 36, 0.1 * Math.PI, 0.9 * Math.PI, false);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#0f172a';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(384, 560, 180, 120, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(name, 384, 690);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = '20px sans-serif';
+    ctx.fillText((role || 'Character Portrait').substring(0, 45), 384, 730);
+
+    return canvas.toDataURL('image/png');
+  } catch (e) {
+    return '';
+  }
+}
+
+async function generateCharacterFromPrompt(customPrompt, customName, customDesc) {
+  const name = (customName || S.charNameInput || 'Character').trim();
+  const desc = (customDesc || S.charRoleInput || '').trim();
+  const prompt = (customPrompt || S.charPromptInput || generateSampleCharacterPrompt(name, desc)).trim();
+
+  S.studioLoading = true;
+  S.studioError = '';
+  S.studioProgress = `Generating portrait for "${name}" with AI...`;
+  studioLog(`🎨 Generating character portrait for "${name}"...`);
+  render();
+
+  try {
+    let finalUrl = '';
+    const cleanPrompt = prompt.replace(/[\r\n]+/g, ' ').trim();
+    const encodedPrompt = encodeURIComponent(cleanPrompt.substring(0, 350));
+    const seed = Math.floor(Math.random() * 900000) + 100000;
+
+    // 1. Try Google AI Studio Imagen 3 if Google API key available
+    if (S.googleApiKey) {
+      try {
+        const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`;
+        const res = await fetch(imagenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instances: [{ prompt: cleanPrompt }],
+            parameters: { sampleCount: 1, aspectRatio: '1:1' }
+          })
+        });
+        if (res.ok) {
+          const imgData = await res.json();
+          const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
+          if (b64) {
+            finalUrl = `data:image/png;base64,${b64}`;
+            studioLog(`✓ Generated "${name}" portrait via Imagen 3!`);
+          }
+        }
+      } catch (e) {
+        console.warn('Imagen 3 API attempt failed, using high-speed visual model:', e);
+      }
+    }
+
+    // 2. High-speed Visual Model (Pollinations AI)
+    if (!finalUrl) {
+      finalUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true&seed=${seed}`;
+    }
+
+    // 3. Attempt quick preload to base64 Data URL (max 4s timeout, falls back to direct URL)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const imgRes = await fetch(finalUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (imgRes && imgRes.ok) {
+        const blob = await imgRes.blob();
+        if (blob && blob.size > 1000) {
+          finalUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (fetchErr) {
+      // In browser, finalUrl renders smoothly via <img> tag directly
+    }
+
+    // 4. Fallback if empty
+    if (!finalUrl) {
+      finalUrl = generateLocalCharacterAvatar(name, desc);
+    }
+
+    const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    if (!S.studioCharacters) S.studioCharacters = [];
+
+    const existingIdx = S.studioCharacters.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
+    const charObj = {
+      id: existingIdx !== -1 ? S.studioCharacters[existingIdx].id : charId,
+      name: name,
+      url: finalUrl,
+      description: desc || prompt.substring(0, 120),
+      prompt: prompt
+    };
+
+    if (existingIdx !== -1) {
+      S.studioCharacters[existingIdx] = charObj;
+      studioLog(`Updated portrait for character "${name}".`);
+    } else {
+      S.studioCharacters.push(charObj);
+      studioLog(`✓ Added character "${name}" to studio cast!`);
+    }
+
+    autoMatchScriptCharacters();
+    saveStudioState();
     S.studioStep = 3;
-    studioLog('No main character description — opening Character Studio.');
+  } catch (err) {
+    console.error('Character generation error:', err);
+    S.studioError = 'Character generation notice: ' + err.message;
+    studioLog('⚠️ ' + err.message);
+    // Ensure avatar is still created so pipeline proceeds smoothly
+    const fallbackUrl = generateLocalCharacterAvatar(name, desc);
+    const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    if (!S.studioCharacters) S.studioCharacters = [];
+    S.studioCharacters.push({ id: charId, name: name, url: fallbackUrl, description: desc, prompt: prompt });
+    autoMatchScriptCharacters();
+    saveStudioState();
+  } finally {
+    S.studioLoading = false;
+    S.studioProgress = '';
+    render();
+  }
+}
+
+async function autoGenerateAllStoryCharacters() {
+  const storyChars = detectStoryCharacters();
+  if (!storyChars.length) {
+    storyChars.push({
+      name: (S.studioTopic || 'Hero').split(' ')[0] || 'Hero',
+      description: S.studioTopic || 'Story protagonist'
+    });
+  }
+
+  S.studioLoading = true;
+  S.studioProgress = `Auto-generating portraits for ${storyChars.length} story characters...`;
+  render();
+
+  for (let i = 0; i < storyChars.length; i++) {
+    const sc = storyChars[i];
+    S.studioProgress = `Generating portrait (${i + 1}/${storyChars.length}): "${sc.name}"...`;
+    render();
+    const prompt = generateSampleCharacterPrompt(sc.name, sc.description);
+    await generateCharacterFromPrompt(prompt, sc.name, sc.description);
+  }
+
+  S.studioLoading = false;
+  S.studioProgress = '';
+  studioLog(`✓ All ${storyChars.length} characters generated successfully!`);
+  render();
+}
+
+async function generateCharacterRef() {
+  S.studioStep = 3;
+  const storyChars = detectStoryCharacters();
+  const first = storyChars[0] || {
+    name: S.studioScript?.mainCharacter?.split(':')?.[0]?.trim() || (S.studioTopic || 'Protagonist').split(' ')[0] || 'Hero',
+    description: S.studioScript?.mainCharacter || S.studioTopic || 'Main character'
+  };
+
+  S.charNameInput = first.name;
+  S.charRoleInput = first.description;
+  S.charPromptInput = generateSampleCharacterPrompt(first.name, first.description);
+
+  if (S.studioCharacters && S.studioCharacters.length) {
     render();
     return;
   }
 
-  S.studioLoading = true;
-  S.studioError = '';
-  S.studioProgress = 'Generating character reference image with AI...';
-  studioLog('Generating character portrait with AI model...');
-  render();
-
-  const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
-
-  try {
-    let finalUrl = '';
-    const charName = mainChar.split(':')[0].trim().replace(/^[^a-zA-Z0-9]+/, '') || 'Main Character';
-    const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-
-    if (S.googleApiKey) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${S.googleApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: `Generate a high-resolution portrait photograph of this character for use as a reference in AI video production. The character must be shown from chest up, looking slightly to the side, with studio lighting.\n\nCharacter: ${mainChar}\nStyle: ${styleInfo.label} — ${styleInfo.desc}\n\nMake the image photorealistic, detailed, with sharp focus on facial features. ${S.studioAspect === '9:16' ? 'Portrait orientation.' : 'Landscape orientation, 16:9.'}` }]
-          }],
-          generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
-        })
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error?.message || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const parts = data.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find(p => p.inlineData);
-      if (imagePart) {
-        finalUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-      } else {
-        throw new Error('Gemini returned no image');
-      }
-    } else {
-      const promptText = encodeURIComponent(`Character portrait of ${mainChar}, ${styleInfo.label} style, cute 3d pixar disney animation style, vibrant colorful render, friendly expressive face, 8k render, centered studio portrait`);
-      finalUrl = `https://image.pollinations.ai/prompt/${promptText}?width=768&height=768&nologo=true&seed=${Math.floor(Math.random()*100000)}`;
-    }
-
-    if (!S.studioCharacters) S.studioCharacters = [];
-    S.studioCharacters.push({ id: charId, name: charName, url: finalUrl, description: mainChar });
-    autoMatchScriptCharacters();
-    saveStudioState();
-    studioLog(`Character reference "${charName}" created!`);
-    S.studioStep = 3;
-  } catch (e) {
-    const promptText = encodeURIComponent(`Character portrait of ${mainChar}, ${styleInfo.label} style, cute 3d animation, colorful, 8k render`);
-    const finalUrl = `https://image.pollinations.ai/prompt/${promptText}?width=768&height=768&nologo=true&seed=${Math.floor(Math.random()*100000)}`;
-    const charName = mainChar.split(':')[0].trim().replace(/^[^a-zA-Z0-9]+/, '') || 'Main Character';
-    const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-
-    if (!S.studioCharacters) S.studioCharacters = [];
-    S.studioCharacters.push({ id: charId, name: charName, url: finalUrl, description: mainChar });
-    autoMatchScriptCharacters();
-    saveStudioState();
-    studioLog('Character created with Free AI fallback.');
-    S.studioStep = 3;
-  }
-  S.studioLoading = false;
-  S.studioProgress = '';
-  render();
+  await generateCharacterFromPrompt(S.charPromptInput, S.charNameInput, S.charRoleInput);
 }
 
 // ── Step 4: Clip Generation with Distinct Scene Visuals ──────────────
@@ -2751,25 +3020,91 @@ function buildStudio() {
     const unassigned = getUnassignedScenes();
     const assignedCount = scenes.length - unassigned.length;
     const isAllAssigned = scenes.length > 0 && unassigned.length === 0;
+    const detectedChars = detectStoryCharacters();
+
+    // Auto-prefill if inputs are currently empty
+    if (!S.charNameInput && detectedChars.length > 0) {
+      S.charNameInput = detectedChars[0].name;
+      S.charRoleInput = detectedChars[0].description;
+      S.charPromptInput = generateSampleCharacterPrompt(detectedChars[0].name, detectedChars[0].description);
+    }
 
     panelHtml = `
+      <!-- AI Character Creator & Prompt Studio -->
       <div class="card" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
           <div>
-            <div class="section-label" style="margin-bottom:4px"><i class="ti ti-user-check"></i> Character Visual Studio & Mandatory Scene Assignment</div>
+            <div class="section-label" style="margin-bottom:4px"><i class="ti ti-sparkles" style="color:var(--brand)"></i> AI Character Creator & Prompt Studio</div>
             <div style="font-size:12px;color:var(--text-secondary)">
-              Upload custom character images. <strong>Strict Requirement:</strong> Only high-resolution images (min 512x512px) are accepted.
+              Generate character portraits with custom AI prompts, or generate sample prompts tailored to your story & scene requirements.
             </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-primary" onclick="document.getElementById('studio-char-file-input').click()">
-              <i class="ti ti-upload"></i> Upload Character Image
+            <button class="btn-ghost" style="font-size:12px;color:var(--brand);border-color:var(--brand)" onclick="autoGenerateAllStoryCharacters()" ${S.studioLoading ? 'disabled' : ''} title="Generate portraits for all detected characters in the script">
+              <i class="ti ti-users-group"></i> Auto-Generate All Story Characters (${detectedChars.length})
             </button>
-            <button class="btn-ghost" onclick="autoMatchScriptCharacters()" ${!characters.length || !scenes.length ? 'disabled' : ''} title="Automatically assign characters based on scene text">
+            <button class="btn-ghost" style="font-size:12px" onclick="autoMatchScriptCharacters()" ${!characters.length || !scenes.length ? 'disabled' : ''} title="Match character art to scenes">
               <i class="ti ti-wand"></i> Auto-Match Scenes
             </button>
-            <button class="btn-ghost" onclick="generateCharacterRef()" ${S.studioLoading ? 'disabled' : ''} title="Generate with AI">
-              <i class="ti ti-sparkles"></i> AI Character Ref
+          </div>
+        </div>
+
+        <div style="background:var(--surface-2);border-radius:10px;padding:16px;border:1px solid var(--border);margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">
+                Select Story Character or Create New:
+              </label>
+              <select class="select-field" style="width:100%" onchange="handleSelectScriptChar(this.value)">
+                <option value="">-- Choose Story Character (${detectedChars.length} detected) --</option>
+                ${detectedChars.map(dc => `<option value="${dc.name}" ${dc.name === S.charNameInput ? 'selected' : ''}>${dc.name} (${(dc.description || '').substring(0, 30)}...)</option>`).join('')}
+                <option value="__new__">+ New Custom Character</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">
+                Character Name:
+              </label>
+              <input type="text" class="input-field" placeholder="e.g. Toby the Tortoise" value="${S.charNameInput || ''}" oninput="S.charNameInput=this.value" />
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">
+              Role & Key Description:
+            </label>
+            <input type="text" class="input-field" placeholder="e.g. A determined little green tortoise with a polished jade shell and orange scarf" value="${S.charRoleInput || ''}" oninput="S.charRoleInput=this.value" />
+          </div>
+
+          <div style="margin-bottom:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+              <label style="font-size:11px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:4px">
+                <i class="ti ti-prompt"></i> Character Visual Prompt (Edit or write your own):
+              </label>
+              <button class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--brand);font-weight:600" onclick="handleGenerateSamplePrompt()" title="Generate optimized prompt from story & scenes">
+                <i class="ti ti-sparkles"></i> Generate Sample Prompt from Story
+              </button>
+            </div>
+            <textarea class="input-field" style="width:100%;height:84px;font-size:12px;line-height:1.5;font-family:inherit;padding:8px 10px" placeholder="Write or edit prompt here (e.g. 3D Pixar character portrait of Toby the Tortoise...)" oninput="S.charPromptInput=this.value">${S.charPromptInput || ''}</textarea>
+          </div>
+
+          <!-- Quick Style Modifiers -->
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+            <span style="font-size:11px;color:var(--text-muted);font-weight:600">Quick Modifiers:</span>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('3D Disney Pixar character concept art')">+ Pixar 3D</button>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('expressive eyes, warm cheerful smile')">+ Expressive Smile</button>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('close-up portrait looking at camera')">+ Close-up</button>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('full body turnaround sheet')">+ Full Body</button>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('volumetric studio lighting, soft glow')">+ Studio Glow</button>
+            <button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="appendPromptModifier('octane render, 8k resolution, ultra detailed textures')">+ 8K Octane</button>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn-primary" style="padding:10px 22px;font-size:13px;background:linear-gradient(135deg,#4285f4,#34a853)" onclick="generateCharacterFromPrompt()" ${S.studioLoading ? 'disabled' : ''}>
+              ${S.studioLoading ? '<span class="pulse-dot"></span> Generating Character...' : '<i class="ti ti-sparkles"></i> Generate Character with AI'}
+            </button>
+            <button class="btn-ghost" style="font-size:12px" onclick="document.getElementById('studio-char-file-input').click()">
+              <i class="ti ti-upload"></i> Or Upload Your Own Image
             </button>
           </div>
         </div>
@@ -2778,7 +3113,7 @@ function buildStudio() {
 
         <div class="studio-upload-zone" onclick="document.getElementById('studio-char-file-input').click()" ondragover="event.preventDefault();this.style.borderColor='var(--brand)'" ondragleave="this.style.borderColor=''" ondrop="handleCharacterDrop(event)">
           <i class="ti ti-cloud-upload"></i>
-          <div style="font-size:14px;font-weight:600;margin-top:4px;color:var(--text-primary)">Click to Upload or Drag & Drop Character Images</div>
+          <div style="font-size:14px;font-weight:600;margin-top:4px;color:var(--text-primary)">Click to Upload or Drag & Drop Character Artwork</div>
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px">Quality Gate: Minimum 512x512px. Low quality images are automatically rejected to protect output quality.</div>
         </div>
 
@@ -2794,10 +3129,13 @@ function buildStudio() {
                 </div>
                 <div style="padding:10px">
                   <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${c.name || 'Character ' + (i+1)}</div>
-                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${renderMarkdown((c.description || '').substring(0, 100))}</div>
-                  <div style="margin-top:8px">
-                    <button class="btn-ghost" style="width:100%;font-size:11px;padding:4px 8px" onclick="assignCharacterToAllScenes('${c.id}')">
-                      <i class="ti ti-check-all"></i> Assign to All Scenes
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${renderMarkdown((c.description || '').substring(0, 95))}</div>
+                  <div style="display:flex;gap:6px;margin-top:8px">
+                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:var(--brand)" onclick="editCharacterPrompt('${c.id}')" title="Load prompt and re-generate this character">
+                      <i class="ti ti-edit"></i> Edit Prompt
+                    </button>
+                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px" onclick="assignCharacterToAllScenes('${c.id}')" title="Assign this character to all scenes">
+                      <i class="ti ti-check-all"></i> Assign All
                     </button>
                   </div>
                 </div>
@@ -2806,7 +3144,7 @@ function buildStudio() {
           </div>
         ` : `
           <div class="info-box" style="margin-top:10px">
-            <i class="ti ti-info-circle"></i> No character images uploaded yet. Please click <strong>"Upload Character Image"</strong> above to provide your character art.
+            <i class="ti ti-info-circle"></i> No character images generated or uploaded yet. Click <strong>"Generate Character with AI"</strong> or <strong>"Auto-Generate All Story Characters"</strong> above!
           </div>
         `}
       </div>
@@ -2830,98 +3168,66 @@ function buildStudio() {
               `).join('')}
             </div>
           </div>
-        ` : ''}
+      ` : ''}
 
+      <!-- Mandatory Scene Character Assignment Section -->
       <div class="card" style="margin-top:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
             <div class="section-label" style="margin-bottom:2px">
-              <i class="ti ti-list-check"></i> Mandatory Scene Character Assignment
+              <i class="ti ti-layout-grid"></i> Scene Character Assignment Gate
             </div>
-            <div style="font-size:12px;color:var(--text-secondary)">
-              Every single scene must be assigned a character. The video rendering pipeline will strictly use only these assigned images.
+            <div style="font-size:12px;color:var(--text-muted)">
+              ${isAllAssigned
+                ? '<span style="color:var(--text-success);font-weight:600"><i class="ti ti-circle-check"></i> All scenes assigned! Ready to generate video clips.</span>'
+                : `<span style="color:#f59e0b;font-weight:600"><i class="ti ti-alert-triangle"></i> ${unassigned.length} scene(s) unassigned. Every scene must have an assigned character!</span>`
+              }
             </div>
           </div>
-          <div style="font-size:12px;font-weight:600;color:${isAllAssigned ? 'var(--text-success)' : 'var(--text-warning)'}">
-            ${assignedCount} of ${scenes.length} Scenes Assigned (${Math.round(scenes.length ? (assignedCount/scenes.length)*100 : 0)}%)
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;color:var(--text-muted)">Assigned: ${assignedCount} / ${scenes.length}</span>
+            <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
+              Next: Generate Video Clips <i class="ti ti-arrow-right"></i>
+            </button>
           </div>
         </div>
 
-        ${!isAllAssigned ? `
-          <div class="studio-gate-banner">
-            <i class="ti ti-alert-triangle" style="font-size:22px;flex-shrink:0"></i>
-            <div>
-              <div style="font-weight:700">Mandatory Requirement Incomplete</div>
-              <div style="font-size:12px;opacity:0.9">
-                You must assign a character image for <strong>all ${scenes.length} scenes</strong> before generating clips. 
-                <span style="font-weight:600">${unassigned.length} scene(s) remaining.</span>
-              </div>
-            </div>
-          </div>
-        ` : `
-          <div class="studio-gate-success">
-            <i class="ti ti-circle-check" style="font-size:22px;flex-shrink:0"></i>
-            <div>
-              <div style="font-weight:700">All Scenes Successfully Assigned!</div>
-              <div style="font-size:12px;opacity:0.9">
-                100% of scenes have assigned character images. Video clips and exports will strictly use these visuals.
-              </div>
-            </div>
-          </div>
-        `}
-
-        <div class="studio-scene-assign-grid">
-          ${scenes.map((sc, i) => {
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:10px">
+          ${scenes.map((sc, idx) => {
+            const isAssigned = !!sc.assignedCharacterId;
             const assignedChar = characters.find(c => c.id === sc.assignedCharacterId);
-            const isAssigned = !!assignedChar;
             return `
-              <div class="studio-scene-assign-card ${!isAssigned ? 'unassigned' : 'assigned'}">
-                <div style="display:flex;align-items:center;gap:12px">
-                  ${isAssigned ? `
-                    <img src="${resolveAssetUrl(assignedChar.url)}" alt="${assignedChar.name}" class="studio-assign-thumb" onclick="openLightbox('${resolveAssetUrl(assignedChar.url)}', '${assignedChar.name}')" title="Click to enlarge" />
-                  ` : `
-                    <div class="studio-assign-thumb-placeholder" title="Character image required">
-                      <i class="ti ti-alert-triangle"></i>
-                    </div>
-                  `}
-                  <div style="flex:1;min-width:0">
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                      <span style="font-size:11px;font-weight:700;color:var(--brand);background:var(--bg-accent);padding:1px 6px;border-radius:6px">Scene ${sc.sceneNum || i+1}</span>
-                      <span style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sc.title || 'Scene ' + (i+1)}</span>
-                      <span style="font-size:11px;color:var(--text-muted);margin-left:auto">${sc.duration || 35}s</span>
-                    </div>
-                    <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
-                      ${sc.narration ? `"${sc.narration}"` : sc.description || ''}
-                    </div>
-                  </div>
+              <div style="background:var(--surface-2);border-radius:8px;padding:10px;border:1px solid ${isAssigned ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'};display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-size:11px;font-weight:700;color:var(--brand)">Scene ${sc.sceneNum || idx + 1}</span>
+                  <span style="font-size:10px;color:var(--text-muted)">${sc.duration || 30}s</span>
                 </div>
-
-                <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-                  <div style="flex:1">
-                    <select class="select-field" style="width:100%;font-size:12px;height:32px;${!isAssigned ? 'border-color:#ef4444;background:rgba(239,68,68,0.08);color:#ef4444;font-weight:600' : ''}" onchange="assignCharacterToScene(${i}, this.value)">
-                      <option value="">-- ⚠️ Select Character (Mandatory) --</option>
-                      ${characters.map(ch => `
-                        <option value="${ch.id}" ${sc.assignedCharacterId === ch.id ? 'selected' : ''}>${ch.name || 'Character'}</option>
-                      `).join('')}
-                    </select>
-                  </div>
-                  ${isAssigned ? `
-                    <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="assignCharacterToAllScenes('${assignedChar.id}')" title="Apply this character to all scenes">
-                      <i class="ti ti-copy"></i> All
-                    </button>
-                  ` : ''}
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                  ${sc.title || 'Scene ' + (idx + 1)}
                 </div>
-              </div>`;
+                <div style="font-size:11px;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+                  ${sc.visualAction || sc.description || sc.narration || ''}
+                </div>
+                <div style="margin-top:auto;padding-top:6px;border-top:1px solid var(--border)">
+                  <label style="font-size:10px;color:var(--text-muted);display:block;margin-bottom:2px">Assigned Character:</label>
+                  <select class="select-field" style="width:100%;font-size:11px;padding:4px 6px" onchange="assignCharacterToScene(${idx}, this.value)">
+                    <option value="">-- Select Character (Required) --</option>
+                    ${characters.map(c => `<option value="${c.id}" ${c.id === sc.assignedCharacterId ? 'selected' : ''}>${c.name}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            `;
           }).join('')}
         </div>
 
-        <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="generateAllClips()" ${!isAllAssigned || S.studioLoading ? 'disabled' : ''} style="${isAllAssigned ? 'background:linear-gradient(135deg,#4285f4,#34a853)' : 'opacity:0.5;cursor:not-allowed'}">
-            ${S.studioLoading ? '<span class="pulse-dot"></span> Generating...' : `<i class="ti ti-video"></i> Generate All Clips (${scenes.length} Scenes)`}
+        <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
+            Next: Generate Video Clips <i class="ti ti-arrow-right"></i>
           </button>
           <button class="btn-ghost" onclick="S.studioStep=2;render()"><i class="ti ti-arrow-left"></i> Back to Prompts</button>
         </div>
-      </div>`;
+      </div>
+    `;
   }
 
   // Step 4: Video Generation Progress
