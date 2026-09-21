@@ -416,6 +416,7 @@ function getProjectContentFingerprint() {
     scenes: (S.studioScript?.scenes || []).map(sc => ({
       idx: sc.sceneIndex,
       char: sc.assignedCharacterId,
+      chars: sc.assignedCharacterIds || (sc.assignedCharacterId ? [sc.assignedCharacterId] : []),
       dialogue: sc.dialogue,
       narration: sc.narration
     })),
@@ -1118,6 +1119,16 @@ function normalizeStudioCharacters() {
       c.name = extracted || `Character ${idx + 1}`;
     }
   });
+
+  // Ensure every scene has assignedCharacterIds array initialized
+  if (S.studioScript && Array.isArray(S.studioScript.scenes)) {
+    S.studioScript.scenes.forEach(sc => {
+      if (!Array.isArray(sc.assignedCharacterIds)) {
+        sc.assignedCharacterIds = sc.assignedCharacterId ? [sc.assignedCharacterId] : [];
+      }
+      sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+    });
+  }
 }
 
 function saveStudioState() {
@@ -1573,30 +1584,111 @@ Return ONLY valid JSON:
   render();
 }
 
-// ── Step 3: Character Studio & Mandatory Scene Assignment ─────────────
+// ── Step 3: Character Studio & Multi-Character Scene Assignment ─────────────
+
+function getSceneCharacterIds(sc) {
+  if (!sc) return [];
+  if (Array.isArray(sc.assignedCharacterIds) && sc.assignedCharacterIds.length) {
+    return sc.assignedCharacterIds.filter(Boolean);
+  }
+  if (sc.assignedCharacterId) {
+    return [sc.assignedCharacterId];
+  }
+  return [];
+}
+
+function getSceneCharacters(sc) {
+  const ids = new Set(getSceneCharacterIds(sc));
+  return (S.studioCharacters || []).filter(c => ids.has(c.id));
+}
+
+function isSceneAssigned(sc) {
+  return getSceneCharacters(sc).length > 0;
+}
 
 function getUnassignedScenes() {
   const scenes = S.studioScript?.scenes || [];
-  const charIds = new Set((S.studioCharacters || []).map(c => c.id));
-  return scenes.filter((sc) => !sc.assignedCharacterId || !charIds.has(sc.assignedCharacterId));
+  return scenes.filter(sc => !isSceneAssigned(sc));
+}
+
+function syncSceneClipCharacters(sceneIdx) {
+  const sc = S.studioScript?.scenes?.[sceneIdx];
+  if (!sc || !S.studioClips?.[sceneIdx]) return;
+  const chars = getSceneCharacters(sc);
+  if (chars.length) {
+    S.studioClips[sceneIdx].characterId = chars[0].id;
+    S.studioClips[sceneIdx].characterIds = chars.map(c => c.id);
+    S.studioClips[sceneIdx].characterName = chars.map(c => c.name).join(' & ');
+    S.studioClips[sceneIdx].characterUrl = chars[0].url;
+    S.studioClips[sceneIdx].characters = chars.map(c => ({ id: c.id, name: c.name, url: c.url }));
+    if (!S.studioClips[sceneIdx].imageUrl) {
+      S.studioClips[sceneIdx].imageUrl = chars[0].url;
+    }
+  } else {
+    S.studioClips[sceneIdx].characterId = null;
+    S.studioClips[sceneIdx].characterIds = [];
+    S.studioClips[sceneIdx].characterName = null;
+    S.studioClips[sceneIdx].characterUrl = null;
+    S.studioClips[sceneIdx].characters = [];
+  }
 }
 
 function assignCharacterToScene(sceneIdx, charId) {
   if (!S.studioScript?.scenes?.[sceneIdx]) return;
-  S.studioScript.scenes[sceneIdx].assignedCharacterId = charId || null;
+  const sc = S.studioScript.scenes[sceneIdx];
+  sc.assignedCharacterIds = charId ? [charId] : [];
+  sc.assignedCharacterId = charId || null;
 
-  const char = (S.studioCharacters || []).find(c => c.id === charId);
-  if (char && S.studioClips?.[sceneIdx]) {
-    S.studioClips[sceneIdx].characterId = char.id;
-    S.studioClips[sceneIdx].characterName = char.name;
-    S.studioClips[sceneIdx].characterUrl = char.url;
-    if (!S.studioClips[sceneIdx].imageUrl) {
-      S.studioClips[sceneIdx].imageUrl = char.url;
-    }
-  }
-
+  syncSceneClipCharacters(sceneIdx);
   saveStudioState();
-  studioLog(`Scene ${sceneIdx + 1} assigned to ${char ? char.name : 'None'}`);
+  const char = (S.studioCharacters || []).find(c => c.id === charId);
+  studioLog(`Scene ${sceneIdx + 1} character set to ${char ? char.name : 'None'}`);
+  render();
+}
+
+function toggleCharacterForScene(sceneIdx, charId) {
+  if (!S.studioScript?.scenes?.[sceneIdx]) return;
+  const sc = S.studioScript.scenes[sceneIdx];
+  if (!Array.isArray(sc.assignedCharacterIds)) {
+    sc.assignedCharacterIds = sc.assignedCharacterId ? [sc.assignedCharacterId] : [];
+  }
+  const idx = sc.assignedCharacterIds.indexOf(charId);
+  if (idx > -1) {
+    sc.assignedCharacterIds.splice(idx, 1);
+  } else {
+    sc.assignedCharacterIds.push(charId);
+  }
+  sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+
+  syncSceneClipCharacters(sceneIdx);
+  saveStudioState();
+  const char = (S.studioCharacters || []).find(c => c.id === charId);
+  const nowSelected = sc.assignedCharacterIds.includes(charId);
+  studioLog(`Scene ${sceneIdx + 1}: ${nowSelected ? 'Added' : 'Removed'} ${char ? char.name : 'character'} (Total: ${sc.assignedCharacterIds.length})`);
+  render();
+}
+
+function assignAllCharactersToScene(sceneIdx) {
+  if (!S.studioScript?.scenes?.[sceneIdx]) return;
+  const sc = S.studioScript.scenes[sceneIdx];
+  sc.assignedCharacterIds = (S.studioCharacters || []).map(c => c.id);
+  sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+
+  syncSceneClipCharacters(sceneIdx);
+  saveStudioState();
+  studioLog(`Scene ${sceneIdx + 1}: Selected all ${sc.assignedCharacterIds.length} characters.`);
+  render();
+}
+
+function clearSceneCharacters(sceneIdx) {
+  if (!S.studioScript?.scenes?.[sceneIdx]) return;
+  const sc = S.studioScript.scenes[sceneIdx];
+  sc.assignedCharacterIds = [];
+  sc.assignedCharacterId = null;
+
+  syncSceneClipCharacters(sceneIdx);
+  saveStudioState();
+  studioLog(`Scene ${sceneIdx + 1}: Cleared all assigned characters.`);
   render();
 }
 
@@ -1604,18 +1696,17 @@ function assignCharacterToAllScenes(charId) {
   if (!S.studioScript?.scenes?.length) return;
   const char = (S.studioCharacters || []).find(c => c.id === charId);
   S.studioScript.scenes.forEach((sc, idx) => {
-    sc.assignedCharacterId = charId || null;
-    if (char && S.studioClips?.[idx]) {
-      S.studioClips[idx].characterId = char.id;
-      S.studioClips[idx].characterName = char.name;
-      S.studioClips[idx].characterUrl = char.url;
-      if (!S.studioClips[idx].imageUrl) {
-        S.studioClips[idx].imageUrl = char.url;
-      }
+    if (!Array.isArray(sc.assignedCharacterIds)) {
+      sc.assignedCharacterIds = sc.assignedCharacterId ? [sc.assignedCharacterId] : [];
     }
+    if (!sc.assignedCharacterIds.includes(charId)) {
+      sc.assignedCharacterIds.push(charId);
+    }
+    sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+    syncSceneClipCharacters(idx);
   });
   saveStudioState();
-  studioLog(`Assigned "${char ? char.name : 'None'}" to all ${S.studioScript.scenes.length} scenes!`);
+  studioLog(`Assigned "${char ? char.name : 'Character'}" to all ${S.studioScript.scenes.length} scenes!`);
   render();
 }
 
@@ -1623,32 +1714,36 @@ function autoMatchScriptCharacters() {
   if (!S.studioScript?.scenes?.length || !S.studioCharacters?.length) return;
   let matchedCount = 0;
 
-  if (S.studioCharacters.length === 1) {
-    assignCharacterToAllScenes(S.studioCharacters[0].id);
-    return;
-  }
-
   S.studioScript.scenes.forEach((sc, idx) => {
-    if (sc.assignedCharacterId) return;
     const sceneText = `${sc.title || ''} ${sc.description || ''} ${sc.narration || ''} ${sc.dialogue || ''} ${(sc.characters || []).join(' ')}`.toLowerCase();
+    const matchedIds = [];
+
     for (const ch of S.studioCharacters) {
       const chName = (ch.name || '').toLowerCase();
       const firstName = chName.split(' ')[0];
       if ((firstName.length > 2 && sceneText.includes(firstName)) || (chName.length > 2 && sceneText.includes(chName))) {
-        sc.assignedCharacterId = ch.id;
-        if (S.studioClips?.[idx]) {
-          S.studioClips[idx].characterId = ch.id;
-          S.studioClips[idx].characterName = ch.name;
-          S.studioClips[idx].characterUrl = ch.url;
+        if (!matchedIds.includes(ch.id)) {
+          matchedIds.push(ch.id);
         }
-        matchedCount++;
-        break;
       }
     }
+
+    if (matchedIds.length > 0) {
+      sc.assignedCharacterIds = matchedIds;
+      sc.assignedCharacterId = matchedIds[0];
+      matchedCount += matchedIds.length;
+    } else if (!isSceneAssigned(sc)) {
+      // Fallback: assign primary character to ensure every scene has at least 1 character
+      sc.assignedCharacterIds = [S.studioCharacters[0].id];
+      sc.assignedCharacterId = S.studioCharacters[0].id;
+      matchedCount++;
+    }
+
+    syncSceneClipCharacters(idx);
   });
 
   saveStudioState();
-  studioLog(`Auto-matched ${matchedCount} scene(s) to characters.`);
+  studioLog(`Smart auto-match complete: assigned characters across scenes (at least 1 per scene).`);
   render();
 }
 
@@ -1669,10 +1764,15 @@ function deleteStudioCharacter(charId) {
     const archivedChar = { ...char, archivedAt: new Date().toISOString() };
     S.archivedCharacters.push(archivedChar);
     S.studioCharacters = (S.studioCharacters || []).filter(c => c.id !== charId);
-    (S.studioScript?.scenes || []).forEach(sc => {
-      if (sc.assignedCharacterId === charId) {
+    (S.studioScript?.scenes || []).forEach((sc, idx) => {
+      if (Array.isArray(sc.assignedCharacterIds)) {
+        sc.assignedCharacterIds = sc.assignedCharacterIds.filter(cid => cid !== charId);
+        sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+      } else if (sc.assignedCharacterId === charId) {
         sc.assignedCharacterId = null;
+        sc.assignedCharacterIds = [];
       }
+      syncSceneClipCharacters(idx);
     });
     saveStudioState();
     studioLog(`✓ Character "${charName}" archived.`);
@@ -1691,10 +1791,15 @@ function deleteStudioCharacter(charId) {
 
   if (confirmDelete) {
     S.studioCharacters = (S.studioCharacters || []).filter(c => c.id !== charId);
-    (S.studioScript?.scenes || []).forEach(sc => {
-      if (sc.assignedCharacterId === charId) {
+    (S.studioScript?.scenes || []).forEach((sc, idx) => {
+      if (Array.isArray(sc.assignedCharacterIds)) {
+        sc.assignedCharacterIds = sc.assignedCharacterIds.filter(cid => cid !== charId);
+        sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
+      } else if (sc.assignedCharacterId === charId) {
         sc.assignedCharacterId = null;
+        sc.assignedCharacterIds = [];
       }
+      syncSceneClipCharacters(idx);
     });
     saveStudioState();
     studioLog(`✓ Character "${charName}" permanently deleted.`);
@@ -2126,35 +2231,39 @@ async function generateStudioClip(idx) {
   const sceneData = S.studioScript?.scenes?.[idx];
   if (!promptData && !sceneData) return;
 
-  const charId = sceneData?.assignedCharacterId;
-  const assignedChar = (S.studioCharacters || []).find(c => c.id === charId);
-  if (!assignedChar) {
+  const assignedChars = getSceneCharacters(sceneData);
+  if (!assignedChars.length) {
     S.studioClips[idx] = {
       sceneIndex: idx,
       status: 'error',
       videoUrl: null,
       imageUrl: null,
       prompt: promptData?.veoPrompt || sceneData?.description,
-      error: 'Scene missing mandatory character assignment! Please assign a character in Step 3.',
+      error: 'Scene missing character assignment! Please assign at least one character in Step 3.',
       cuts: S.studioClips?.[idx]?.cuts || []
     };
     render();
     return;
   }
 
+  const charNames = assignedChars.map(c => c.name).join(' & ');
+  const charDetails = assignedChars.map(c => `${c.name} (${(c.description || '').substring(0, 60)})`).join(', ');
+
   S.studioClips[idx] = {
     sceneIndex: idx,
     status: 'generating',
     videoUrl: null,
     imageUrl: S.studioClips[idx]?.imageUrl || null,
-    characterId: assignedChar.id,
-    characterName: assignedChar.name,
-    characterUrl: assignedChar.url,
+    characterId: assignedChars[0].id,
+    characterIds: assignedChars.map(c => c.id),
+    characterName: charNames,
+    characterUrl: assignedChars[0].url,
+    characters: assignedChars.map(c => ({ id: c.id, name: c.name, url: c.url })),
     prompt: promptData?.veoPrompt || sceneData?.description,
     error: null,
     cuts: S.studioClips?.[idx]?.cuts || []
   };
-  studioLog(`Generating visual for Scene ${idx + 1} (${sceneData?.title || ''}) featuring "${assignedChar.name}"...`);
+  studioLog(`Generating visual for Scene ${idx + 1} (${sceneData?.title || ''}) featuring ${charNames}...`);
   render();
 
   try {
@@ -2178,14 +2287,14 @@ async function generateStudioClip(idx) {
       }
     }
 
-    // Generate unique scene-specific visual featuring the assigned character!
+    // Generate unique scene-specific visual featuring ALL assigned characters!
     const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
     const sceneTitle = sceneData?.title || promptData?.title || `Scene ${idx + 1}`;
     const sceneAction = promptData?.veoPrompt || sceneData?.description || '';
     const sceneEnv = sceneData?.environment || '';
 
     const visualPrompt = encodeURIComponent(
-      `${sceneTitle}, featuring character ${assignedChar.name} (${(assignedChar.description || '').substring(0, 80)}), ${sceneAction}, setting in ${sceneEnv}, ${styleInfo.label} visual style, ultra detailed 4k cinematic render, colorful lighting`
+      `${sceneTitle}, featuring characters ${charDetails}, ${sceneAction}, setting in ${sceneEnv}, ${styleInfo.label} visual style, ultra detailed 4k cinematic render, colorful lighting`
     );
     const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
     const aspectHeight = S.studioAspect === '9:16' ? 1024 : (S.studioAspect === '1:1' ? 768 : 576);
@@ -2196,11 +2305,13 @@ async function generateStudioClip(idx) {
 
     S.studioClips[idx].status = 'done';
     S.studioClips[idx].imageUrl = uniqueSceneUrl;
-    S.studioClips[idx].characterId = assignedChar.id;
-    S.studioClips[idx].characterName = assignedChar.name;
-    S.studioClips[idx].characterUrl = assignedChar.url;
+    S.studioClips[idx].characterId = assignedChars[0].id;
+    S.studioClips[idx].characterIds = assignedChars.map(c => c.id);
+    S.studioClips[idx].characterName = charNames;
+    S.studioClips[idx].characterUrl = assignedChars[0].url;
+    S.studioClips[idx].characters = assignedChars.map(c => ({ id: c.id, name: c.name, url: c.url }));
     S.studioClips[idx].videoUrl = null;
-    studioLog(`Scene ${idx + 1}: Unique visual generated featuring "${assignedChar.name}"!`);
+    studioLog(`Scene ${idx + 1}: Unique visual generated featuring ${charNames}!`);
     render();
   } catch (e) {
     S.studioClips[idx].status = 'error';
@@ -2251,16 +2362,18 @@ async function generateAllClips() {
   const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
   S.studioClips = Array.from({ length: numScenes }, (_, i) => {
     const sc = S.studioScript?.scenes?.[i];
-    const ch = (S.studioCharacters || []).find(c => c.id === sc?.assignedCharacterId);
+    const assignedChars = getSceneCharacters(sc);
     const p = S.studioPrompts?.[i];
     return {
       sceneIndex: i,
       status: 'queued',
       videoUrl: null,
       imageUrl: S.studioClips?.[i]?.imageUrl || null,
-      characterId: ch?.id,
-      characterName: ch?.name,
-      characterUrl: ch?.url,
+      characterId: assignedChars[0]?.id || null,
+      characterIds: assignedChars.map(c => c.id),
+      characterName: assignedChars.map(c => c.name).join(' & ') || null,
+      characterUrl: assignedChars[0]?.url || null,
+      characters: assignedChars.map(c => ({ id: c.id, name: c.name, url: c.url })),
       prompt: p?.veoPrompt || sc?.description || '',
       error: null,
       cuts: S.studioClips?.[i]?.cuts || []
@@ -2956,7 +3069,7 @@ function canNavigateToStep(i) {
   if (i === 1) return !!S.studioScript;
   if (i === 2) return !!(S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript)));
   if (i === 3) return !!(S.studioPrompts && S.studioPrompts.length);
-  if (i === 4) return !!(S.studioCharacters && S.studioCharacters.length);
+  if (i === 4) return !!(S.studioCharacters && S.studioCharacters.length && getUnassignedScenes().length === 0);
   if (i === 5) return !!(S.studioClips && S.studioClips.length);
   if (i === 6) return !!(S.studioClips && S.studioClips.length);
   return false;
@@ -3291,45 +3404,86 @@ function buildStudio() {
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
             <div class="section-label" style="margin-bottom:2px">
-              <i class="ti ti-layout-grid"></i> Scene Character Assignment Gate
+              <i class="ti ti-layout-grid"></i> Scene Character Assignment (Multi-Character Support)
             </div>
             <div style="font-size:12px;color:var(--text-muted)">
               ${isAllAssigned
-                ? '<span style="color:var(--text-success);font-weight:600"><i class="ti ti-circle-check"></i> All scenes assigned! Ready to generate video clips.</span>'
-                : `<span style="color:#f59e0b;font-weight:600"><i class="ti ti-alert-triangle"></i> ${unassigned.length} scene(s) unassigned. Every scene must have an assigned character!</span>`
+                ? '<span style="color:var(--text-success);font-weight:600"><i class="ti ti-circle-check"></i> All scenes assigned! (Each scene has at least 1 character). Ready to generate video clips.</span>'
+                : `<span style="color:#f59e0b;font-weight:600"><i class="ti ti-alert-triangle"></i> ${unassigned.length} scene(s) missing characters. Every scene must have at least one character! (You can select multiple).</span>`
               }
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text-muted)">Assigned: ${assignedCount} / ${scenes.length}</span>
+            <button class="btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--brand)" onclick="autoMatchScriptCharacters()" title="Auto-detect characters mentioned in scenes and assign them">
+              <i class="ti ti-wand"></i> Auto-Match All
+            </button>
             <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
               Next: Generate Video Clips <i class="ti ti-arrow-right"></i>
             </button>
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:12px">
           ${scenes.map((sc, idx) => {
-            const isAssigned = !!sc.assignedCharacterId;
-            const assignedChar = characters.find(c => c.id === sc.assignedCharacterId);
+            const assignedChars = getSceneCharacters(sc);
+            const isAssigned = assignedChars.length > 0;
+            const assignedIds = new Set(assignedChars.map(c => c.id));
+
             return `
-              <div style="background:var(--surface-2);border-radius:8px;padding:10px;border:1px solid ${isAssigned ? 'rgba(34,197,94,0.4)' : 'rgba(245,158,11,0.4)'};display:flex;flex-direction:column;gap:6px">
+              <div style="background:var(--surface-2);border-radius:10px;padding:12px;border:1.5px solid ${isAssigned ? 'rgba(34,197,94,0.45)' : 'rgba(239,68,68,0.5)'};box-shadow:${isAssigned ? 'none' : '0 0 10px rgba(239,68,68,0.1)'};display:flex;flex-direction:column;gap:8px;position:relative">
                 <div style="display:flex;align-items:center;justify-content:space-between">
-                  <span style="font-size:11px;font-weight:700;color:var(--brand)">Scene ${sc.sceneNum || idx + 1}</span>
-                  <span style="font-size:10px;color:var(--text-muted)">${sc.duration || 30}s</span>
+                  <span style="font-size:11px;font-weight:700;color:var(--brand);background:rgba(66,133,244,0.1);padding:2px 8px;border-radius:4px">
+                    Scene ${sc.sceneNum || idx + 1}
+                  </span>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span style="font-size:10px;color:var(--text-muted)">${sc.duration || 30}s</span>
+                    <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${isAssigned ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'};color:${isAssigned ? 'var(--text-success)' : 'var(--text-danger)'}">
+                      ${isAssigned ? `<i class="ti ti-check"></i> ${assignedChars.length} selected` : '<i class="ti ti-alert-triangle"></i> At least 1 required'}
+                    </span>
+                  </div>
                 </div>
-                <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                   ${sc.title || 'Scene ' + (idx + 1)}
                 </div>
-                <div style="font-size:11px;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
+
+                <div style="font-size:11px;color:var(--text-secondary);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
                   ${sc.visualAction || sc.description || sc.narration || ''}
                 </div>
-                <div style="margin-top:auto;padding-top:6px;border-top:1px solid var(--border)">
-                  <label style="font-size:10px;color:var(--text-muted);display:block;margin-bottom:2px">Assigned Character:</label>
-                  <select class="select-field" style="width:100%;font-size:11px;padding:4px 6px" onchange="assignCharacterToScene(${idx}, this.value)">
-                    <option value="">-- Select Character (Required) --</option>
-                    ${characters.map(c => `<option value="${c.id}" ${c.id === sc.assignedCharacterId ? 'selected' : ''}>${c.name}</option>`).join('')}
-                  </select>
+
+                <div style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label style="font-size:11px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:4px">
+                      <i class="ti ti-users" style="color:var(--brand)"></i> Select Characters:
+                    </label>
+                    <div style="display:flex;gap:4px">
+                      <button type="button" class="btn-ghost" style="font-size:10px;padding:2px 6px;color:var(--brand)" onclick="assignAllCharactersToScene(${idx})" title="Add all characters to this scene">
+                        + All
+                      </button>
+                      <button type="button" class="btn-ghost" style="font-size:10px;padding:2px 6px;color:var(--text-muted)" onclick="clearSceneCharacters(${idx})" title="Clear character selections for this scene">
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Multi-Character Select Chips -->
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${characters.map(c => {
+                      const isSel = assignedIds.has(c.id);
+                      return `
+                        <button type="button" 
+                          class="char-chip-toggle ${isSel ? 'selected' : ''}" 
+                          onclick="toggleCharacterForScene(${idx}, '${c.id}')"
+                          title="${isSel ? 'Click to deselect ' + c.name : 'Click to select ' + c.name + ' for this scene'}"
+                          style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:20px;font-size:11px;cursor:pointer;transition:all 0.15s;border:1.5px solid ${isSel ? 'var(--brand)' : 'var(--border)'};background:${isSel ? 'rgba(66,133,244,0.18)' : 'var(--surface-3, rgba(255,255,255,0.04))'};color:${isSel ? 'var(--text-primary)' : 'var(--text-secondary)'};font-weight:${isSel ? '600' : '400'}">
+                          <img src="${resolveAssetUrl(c.url)}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;border:1px solid rgba(255,255,255,0.2)" />
+                          <span>${c.name}</span>
+                          <i class="ti ${isSel ? 'ti-check' : 'ti-plus'}" style="font-size:11px;color:${isSel ? 'var(--brand)' : 'var(--text-muted)'}"></i>
+                        </button>
+                      `;
+                    }).join('')}
+                  </div>
                 </div>
               </div>
             `;
@@ -3398,12 +3552,20 @@ function buildStudio() {
               <div class="studio-timeline-header">
                 <span style="font-size:11px;font-weight:700;color:var(--brand)">${i+1}</span>
                 <span style="font-size:12px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p?.title || 'Scene ' + (i+1)}</span>
-                ${assignedChar ? `
-                  <span class="studio-char-pill" title="Assigned Character: ${assignedChar.name}">
-                    <img src="${resolveAssetUrl(assignedChar.url)}" class="studio-char-avatar" />
-                    <span>${assignedChar.name.split(' ')[0]}</span>
-                  </span>
-                ` : ''}
+                ${(() => {
+                  const assignedChars = getSceneCharacters(sc);
+                  if (!assignedChars.length) return '';
+                  return `
+                    <div style="display:flex;align-items:center;gap:4px" title="Assigned: ${assignedChars.map(c => c.name).join(', ')}">
+                      ${assignedChars.map(ac => `
+                        <span class="studio-char-pill" style="margin-right:0">
+                          <img src="${resolveAssetUrl(ac.url)}" class="studio-char-avatar" />
+                          <span>${ac.name.split(' ')[0]}</span>
+                        </span>
+                      `).join('')}
+                    </div>
+                  `;
+                })()}
                 ${cuts.length ? `<span class="studio-cut-pill" style="font-size:9px;padding:1px 5px" title="${cuts.length} cut(s) applied"><i class="ti ti-scissors"></i> ${cuts.length}</span>` : ''}
                 <div style="display:flex;gap:4px">
                   <button class="btn-ghost" style="padding:2px 6px;font-size:11px;color:${cuts.length ? '#f87171' : 'var(--text-muted)'}" onclick="openClipCutModal(${i})" title="Cut/Trim this scene"><i class="ti ti-scissors"></i></button>

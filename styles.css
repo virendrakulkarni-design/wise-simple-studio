@@ -848,6 +848,35 @@ body {
   object-fit: cover;
 }
 
+/* ── Multi-Character Toggle Chips ── */
+.char-chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  border: 1.5px solid var(--border);
+  background: var(--surface-3, rgba(255, 255, 255, 0.05));
+  color: var(--text-secondary);
+  user-select: none;
+}
+.char-chip-toggle:hover {
+  border-color: var(--brand);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+.char-chip-toggle.selected {
+  border-color: var(--brand);
+  background: rgba(66, 133, 244, 0.18);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(66, 133, 244, 0.25);
+}
+
 /* ── Quality Validation Alert ── */
 .quality-alert-box {
   background: rgba(239, 68, 68, 0.12);
