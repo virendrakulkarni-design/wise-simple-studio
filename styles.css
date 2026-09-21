@@ -959,3 +959,181 @@ body {
   background: var(--surface-1);
   font-style: italic;
 }
+
+
+/* ── Stepper Lock State & Affordance ── */
+.studio-step.locked {
+  cursor: not-allowed !important;
+  opacity: 0.45;
+}
+.studio-step.locked:hover {
+  opacity: 0.7;
+}
+.studio-step.locked .studio-step-dot {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(30, 41, 59, 0.4);
+  position: relative;
+}
+.studio-step-lock-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 15px;
+  height: 15px;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 50%;
+  font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+
+/* ── Sticky Bottom Action Bar ── */
+.studio-sticky-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 62px;
+  background: rgba(11, 15, 25, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(66, 133, 244, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 950;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.65);
+  animation: slideUpSticky 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpSticky {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.studio-sticky-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio-sticky-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--brand);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
+}
+
+.studio-sticky-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.studio-sticky-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Ensure page has padding so sticky bar never covers bottom content */
+.studio-content-pad {
+  padding-bottom: 78px;
+}
+
+/* ── Setup & Keys Modal Ergonomics ── */
+.modal-box.modal-box-ergonomic {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal-ergonomic-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface-1);
+}
+
+.modal-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0 16px;
+  gap: 4px;
+}
+
+.modal-tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-tab-btn.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.modal-ergonomic-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-ergonomic-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ── Player Ambient Glow ── */
+.studio-player-ambient {
+  position: absolute;
+  inset: -30px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(35px) brightness(0.35) saturate(1.5);
+  transform: scale(1.15);
+  z-index: 1;
+  opacity: 0.85;
+  pointer-events: none;
+  transition: background-image 0.5s ease-in-out;
+}

@@ -2801,6 +2801,7 @@ function renderStudioPlayer() {
   return `
     <div class="studio-player-container">
       <div class="studio-player-screen">
+        ${mediaUrl ? `<div class="studio-player-ambient" style="background-image: url('${mediaUrl}')"></div>` : ''}
         ${clip.videoUrl ? `
           <video src="${clip.videoUrl}" autoplay loop muted playsinline class="studio-player-media"></video>
         ` : mediaUrl ? `
@@ -3239,52 +3240,216 @@ function renderHistoryModal() {
     </div>`;
 }
 
+function setSetupModalTab(tab) {
+  S.setupModalTab = tab;
+  render();
+}
+
+function getStepLockReason(i) {
+  if (i === 1 && !S.studioScript) return 'Enter a story concept and generate a script first.';
+  if (i === 2 && (!S.studioScript || (!S.studioScript.scenes?.length && !Array.isArray(S.studioScript)))) return 'Generate a script with scenes first to unlock visual prompts.';
+  if (i === 3 && (!S.studioPrompts || !S.studioPrompts.length)) return 'Expand prompts first to unlock character design studio.';
+  if (i === 4 && (!S.studioCharacters || !S.studioCharacters.length || getUnassignedScenes().length > 0)) {
+    const unassigned = getUnassignedScenes();
+    return 'Assign characters to all scenes in Step 3 (' + unassigned.length + ' unassigned).';
+  }
+  if (i >= 5 && (!S.studioClips || !S.studioClips.length)) return 'Generate video scene clips in Step 4 first to unlock Timeline & Export.';
+  return null;
+}
+
+function goToStep(i) {
+  if (!canNavigateToStep(i)) {
+    const reason = getStepLockReason(i) || 'Complete previous steps to unlock this section.';
+    studioLog('🔒 ' + reason);
+    return;
+  }
+  S.studioStep = i;
+  S.qualityAlert = null; // Auto-clear quality error on navigation!
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderStickyBottomBar() {
+  const step = S.studioStep;
+  let leftHtml = '';
+  let rightHtml = '';
+
+  if (step === 0) {
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 1 of 7</span>
+      <span class="studio-sticky-title">Story Concept & Vision</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" style="font-size:12px;padding:6px 12px;color:#06b6d4;border-color:rgba(6,182,212,0.4)" onclick="runFullPipeline()" ${S.studioLoading ? 'disabled' : ''} title="Automatically generate script, prompts, characters, and scenes">
+        <i class="ti ti-bolt"></i> Full Auto Run
+      </button>
+      <button class="btn-primary" style="font-size:12px;padding:7px 18px" onclick="generateStudioScript()" ${S.studioLoading ? 'disabled' : ''}>
+        ${S.studioLoading ? '<span class="pulse-dot"></span> Generating...' : '<i class="ti ti-wand"></i> Generate Story & Script <i class="ti ti-arrow-right"></i>'}
+      </button>
+    `;
+  } else if (step === 1) {
+    const sceneCount = S.studioScript?.scenes?.length || (Array.isArray(S.studioScript) ? S.studioScript.length : 0);
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 2 of 7</span>
+      <span class="studio-sticky-title">Script Studio • ${sceneCount} Scenes</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(0)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="expandToPrompts()" ${S.studioLoading ? 'disabled' : ''}>
+        ${S.studioLoading ? '<span class="pulse-dot"></span> Expanding...' : 'Next: Expand to Prompts <i class="ti ti-arrow-right"></i>'}
+      </button>
+    `;
+  } else if (step === 2) {
+    const promptCount = S.studioPrompts?.length || 0;
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 3 of 7</span>
+      <span class="studio-sticky-title">Visual Prompts • ${promptCount} Scene Blueprints</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(1)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="goToStep(3)">
+        Next: Assign Characters <i class="ti ti-arrow-right"></i>
+      </button>
+    `;
+  } else if (step === 3) {
+    const scenes = S.studioScript?.scenes || (Array.isArray(S.studioScript) ? S.studioScript : []);
+    const unassigned = getUnassignedScenes();
+    const isAllAssigned = scenes.length > 0 && unassigned.length === 0;
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 4 of 7</span>
+      <span class="studio-sticky-title">Characters • ${scenes.length - unassigned.length}/${scenes.length} Scenes Assigned</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(2)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="goToStep(4)" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : ''}">
+        ${isAllAssigned ? 'Next: Generate Video Clips <i class="ti ti-arrow-right"></i>' : `Assign All Scenes (${unassigned.length} left)`}
+      </button>
+    `;
+  } else if (step === 4) {
+    const clips = S.studioClips || [];
+    const doneClips = clips.filter(c => c && (c.imageUrl || c.videoUrl)).length;
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 5 of 7</span>
+      <span class="studio-sticky-title">Video Generation • ${doneClips}/${clips.length} Scenes Ready</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(3)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="goToStep(5)">
+        Go to Timeline & Player <i class="ti ti-arrow-right"></i>
+      </button>
+    `;
+  } else if (step === 5) {
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 6 of 7</span>
+      <span class="studio-sticky-title">Timeline & Audio Playback</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(4)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="goToStep(6)">
+        Proceed to Export <i class="ti ti-arrow-right"></i>
+      </button>
+    `;
+  } else if (step === 6) {
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 7 of 7</span>
+      <span class="studio-sticky-title">Production Export</span>
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(5)"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
+      <button class="btn-primary" onclick="exportStudioJSON()">
+        <i class="ti ti-download"></i> Export Project JSON
+      </button>
+    `;
+  }
+
+  return `
+    <div class="studio-sticky-bar">
+      <div class="studio-sticky-left">${leftHtml}</div>
+      <div class="studio-sticky-actions">${rightHtml}</div>
+    </div>
+  `;
+}
+
 function renderSetupModal() {
   if (!S.showSetup) return '';
+  const currentTab = S.setupModalTab || 'keys';
+
   return `
     <div class="modal-overlay" onclick="if(event.target===this){S.showSetup=false;render();}">
-      <div class="modal-box">
-        <div class="modal-header">
-          <div class="modal-title"><i class="ti ti-key" style="color:var(--brand)"></i> API & Cloud Configuration</div>
+      <div class="modal-box modal-box-ergonomic">
+        <div class="modal-ergonomic-header">
+          <div class="modal-title"><i class="ti ti-settings" style="color:var(--brand)"></i> Studio Setup & Configuration</div>
           <button class="modal-close" onclick="S.showSetup=false;render()">&times;</button>
         </div>
-        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
-          Wise Simple Studio runs 100% in your browser. API keys and tokens are stored securely in local browser storage.
+
+        <div class="modal-tabs">
+          <button class="modal-tab-btn ${currentTab === 'keys' ? 'active' : ''}" onclick="setSetupModalTab('keys')">
+            <i class="ti ti-key"></i> 🔑 API Keys
+          </button>
+          <button class="modal-tab-btn ${currentTab === 'drive' ? 'active' : ''}" onclick="setSetupModalTab('drive')">
+            <i class="ti ti-brand-google-drive"></i> ☁️ Google Drive
+          </button>
+          <button class="modal-tab-btn ${currentTab === 'models' ? 'active' : ''}" onclick="setSetupModalTab('models')">
+            <i class="ti ti-photo"></i> 🎨 AI Visual Model
+          </button>
         </div>
 
-        <div class="section-label" style="margin-bottom:6px">Groq API Key (Fast LLM Script Generation)</div>
-        <input type="password" class="input-field" placeholder="gsk_..." value="${S.apiKey}" oninput="S.apiKey=this.value.trim();localStorage.setItem('groq-key', this.value.trim());loadGroqModels();" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Get a free key from <a href="https://console.groq.com" target="_blank" style="color:var(--brand)">console.groq.com</a> (Free tier: 14,400 req/day).</div>
+        <div class="modal-ergonomic-body">
+          ${currentTab === 'keys' ? `
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">
+              Keys are stored securely 100% in your local browser storage.
+            </div>
 
-        <div class="section-label" style="margin-bottom:6px">Google Cloud OAuth Client ID (For Google Drive Sync)</div>
-        <input type="text" class="input-field" placeholder="your-client-id.apps.googleusercontent.com" value="${S.googleClientId}" oninput="S.googleClientId=this.value.trim();localStorage.setItem('gdrive-client-id', this.value.trim())" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">Enables 1-click cloud sync of projects and assets directly to your Google Drive.</div>
+            <div class="section-label" style="margin-bottom:6px">Groq API Key (High-Speed LLM Story Generator)</div>
+            <input type="password" class="input-field" placeholder="gsk_..." value="${S.apiKey}" oninput="S.apiKey=this.value.trim();localStorage.setItem('groq-key', this.value.trim());loadGroqModels();" style="margin-bottom:6px" />
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">
+              Get a free key at <a href="https://console.groq.com" target="_blank" style="color:var(--brand)">console.groq.com</a> (Free tier: 14,400 requests/day).
+            </div>
 
-        <div class="section-label" style="margin-bottom:6px">Google Drive Target Folder (URL or ID)</div>
-        <input type="text" class="input-field" placeholder="https://drive.google.com/drive/folders/..." value="${S.googleDriveFolderUrl || ('https://drive.google.com/drive/folders/' + (S.googleDriveFolderId || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY'))}" oninput="setTargetDriveFolder(this.value)" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">
-          Projects and character assets will be saved into subfolders inside this Google Drive folder.
-          <a href="${S.googleDriveFolderUrl || ('https://drive.google.com/drive/folders/' + (S.googleDriveFolderId || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY'))}" target="_blank" rel="noopener" style="color:var(--brand);margin-left:4px;font-weight:600">Open Target Folder in Drive ↗</a>
+            <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (For Google Flow / Veo 2 & Imagen 3)</div>
+            <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value.trim();localStorage.setItem('google-key', this.value.trim())" style="margin-bottom:6px" />
+            <div style="font-size:11px;color:var(--text-muted)">
+              Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--brand)">aistudio.google.com/apikey</a>. Unlocks Google Flow (Veo 2 Video & Imagen 3 creative visuals).
+            </div>
+          ` : currentTab === 'drive' ? `
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">
+              Direct cloud sync saves all generated scripts, character reference sheets, and videos directly to your Google Drive.
+            </div>
+
+            <div class="section-label" style="margin-bottom:6px">Google Cloud OAuth Client ID</div>
+            <input type="text" class="input-field" placeholder="your-client-id.apps.googleusercontent.com" value="${S.googleClientId}" oninput="S.googleClientId=this.value.trim();localStorage.setItem('gdrive-client-id', this.value.trim())" style="margin-bottom:6px" />
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Enables 1-click cloud sync of projects and assets directly to your Google Drive.</div>
+
+            <div class="section-label" style="margin-bottom:6px">Google Drive Target Folder (URL or ID)</div>
+            <input type="text" class="input-field" placeholder="https://drive.google.com/drive/folders/..." value="${S.googleDriveFolderUrl || ('https://drive.google.com/drive/folders/' + (S.googleDriveFolderId || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY'))}" oninput="setTargetDriveFolder(this.value)" style="margin-bottom:6px" />
+            <div style="font-size:11px;color:var(--text-muted)">
+              Projects will be saved into subfolders inside this Google Drive folder.
+              <a href="${S.googleDriveFolderUrl || ('https://drive.google.com/drive/folders/' + (S.googleDriveFolderId || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY'))}" target="_blank" rel="noopener" style="color:var(--brand);margin-left:4px;font-weight:600">Open Target Folder in Drive ↗</a>
+            </div>
+          ` : `
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">
+              Choose the visual model for character portraits, concept art, and storyboard scenes.
+            </div>
+            <div style="margin-bottom:10px">
+              ${renderImageModelSelect()}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">
+              Free models like <strong>Nano Banana</strong>, <strong>Flux.1 Schnell</strong>, and <strong>SDXL Turbo</strong> run instantly without requiring any API keys.
+            </div>
+          `}
         </div>
 
-        <div class="section-label" style="margin-bottom:6px">AI Visual Model (Characters & Storyboards)</div>
-        <div style="margin-bottom:8px">
-          ${renderImageModelSelect()}
+        <div class="modal-ergonomic-footer">
+          <div style="font-size:11px;color:var(--text-success);display:flex;align-items:center;gap:4px">
+            <i class="ti ti-shield-check"></i> Stored in Local Browser Storage
+          </div>
+          <button class="btn-primary" onclick="S.showSetup=false;loadGroqModels();render()">
+            <i class="ti ti-check"></i> Save & Close
+          </button>
         </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">
-          Select which AI model generates your character portraits and storyboard scenes. Free models (Flux.1, SDXL Turbo, SANA) run instantly without any key.
-        </div>
-
-        <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (For Google Flow / Veo 2 & Imagen 3)</div>
-        <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value;localStorage.setItem('google-key', this.value)" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Get a free key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--brand)">aistudio.google.com/apikey</a>. Unlocks Google Flow (Veo 2 video & Imagen 3 creative visuals).</div>
-
-        <button class="btn-primary" style="width:100%" onclick="S.showSetup=false;loadGroqModels();render()"><i class="ti ti-check"></i> Save & Continue</button>
       </div>
     </div>`;
 }
-
-// ── Studio Main Panels (Steps 0–6) ────────────────────────────────────
 function canNavigateToStep(i) {
   if (i === 0) return true;
   if (i === 1) return !!S.studioScript;
@@ -3309,13 +3474,23 @@ function buildStudio() {
 
   const stepperHtml = `
     <div class="studio-stepper">
-      ${steps.map((st, i) => `
-        <div class="studio-step ${i === S.studioStep ? 'active' : ''} ${i < S.studioStep || (i !== S.studioStep && canNavigateToStep(i)) ? 'done' : ''}" onclick="${canNavigateToStep(i) ? `S.studioStep=${i};render()` : ''}" style="${canNavigateToStep(i) ? 'cursor:pointer' : 'cursor:not-allowed;opacity:0.6'}">
-          <div class="studio-step-dot"><i class="ti ${i < S.studioStep ? 'ti-check' : st.icon}"></i></div>
-          <span class="studio-step-label">${st.label}</span>
-        </div>
-        ${i < steps.length - 1 ? '<div class="studio-step-line ' + (i < S.studioStep ? 'done' : '') + '"></div>' : ''}
-      `).join('')}
+      ${steps.map((st, i) => {
+        const canNav = canNavigateToStep(i);
+        const lockReason = !canNav ? getStepLockReason(i) : '';
+        const isDone = i < S.studioStep || (i !== S.studioStep && canNav);
+        return `
+          <div class="studio-step ${i === S.studioStep ? 'active' : ''} ${isDone ? 'done' : ''} ${!canNav ? 'locked' : ''}"
+               onclick="goToStep(${i})"
+               title="${!canNav ? '🔒 Locked: ' + lockReason : 'Navigate to ' + st.label}">
+            <div class="studio-step-dot">
+              <i class="ti ${i < S.studioStep ? 'ti-check' : st.icon}"></i>
+              ${!canNav ? '<span class="studio-step-lock-badge"><i class="ti ti-lock"></i></span>' : ''}
+            </div>
+            <span class="studio-step-label">${st.label}</span>
+          </div>
+          ${i < steps.length - 1 ? '<div class="studio-step-line ' + (i < S.studioStep ? 'done' : '') + '"></div>' : ''}
+        `;
+      }).join('')}
     </div>`;
 
   const errorHtml = S.studioError ? `<div class="error-box" style="margin-bottom:14px"><i class="ti ti-alert-circle"></i> ${S.studioError}</div>` : '';
@@ -3369,16 +3544,20 @@ function buildStudio() {
         <div class="section-label" style="margin-top:18px;margin-bottom:10px">Aspect Ratio</div>
         <div class="filter-pills">${aspectBtns}</div>
 
-        <div style="display:flex;gap:10px;margin-top:22px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="generateStudioScript()" ${S.studioLoading ? 'disabled' : ''}>
-            ${S.studioLoading ? '<span class="pulse-dot"></span> Generating...' : '<i class="ti ti-wand"></i> Generate Script'}
+        <div style="display:flex;align-items:center;gap:12px;margin-top:24px;flex-wrap:wrap">
+          <button class="btn-primary" style="font-size:14px;padding:10px 22px;box-shadow:0 4px 18px rgba(99,102,241,0.35)" onclick="generateStudioScript()" ${S.studioLoading ? 'disabled' : ''}>
+            ${S.studioLoading ? '<span class="pulse-dot"></span> Generating Story...' : '<i class="ti ti-wand"></i> Generate Story & Script'}
           </button>
-          <button class="btn-primary" onclick="runFullPipeline()" ${S.studioLoading ? 'disabled' : ''} style="background:linear-gradient(135deg,#3b82f6,#10b981)">
-            <i class="ti ti-bolt"></i> Full Auto Run
+          <button class="btn-ghost" style="font-size:13px;padding:9px 18px;color:#06b6d4;border-color:rgba(6,182,212,0.45);background:rgba(6,182,212,0.06)" onclick="runFullPipeline()" ${S.studioLoading ? 'disabled' : ''} title="One-click full generation: Script, Prompts, Characters, and Video Scenes">
+            <i class="ti ti-bolt"></i> Full Auto Run (One-Click)
           </button>
-          <button class="btn-primary" onclick="loadSampleEpic()" ${S.studioLoading ? 'disabled' : ''} style="background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff">
-            <i class="ti ti-sparkles"></i> 🎬 Load 7-Min Kids Story
+          <button class="btn-ghost" style="font-size:12px;padding:9px 16px;color:#f59e0b;border-color:rgba(245,158,11,0.4)" onclick="loadSampleEpic()" ${S.studioLoading ? 'disabled' : ''} title="Load pre-built Hare & Tortoise 7-Minute Kids Epic Demo">
+            <i class="ti ti-sparkles"></i> 🎬 Load 7-Min Kids Story (Demo)
           </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:12px;display:flex;align-items:center;gap:6px">
+          <i class="ti ti-bulb" style="color:#f59e0b"></i>
+          <span><strong>Tip:</strong> Choose <em>Generate Story & Script</em> for step-by-step creative control, or <em>Full Auto Run</em> to generate the entire film automatically.</span>
         </div>
       </div>`;
   }
@@ -3920,7 +4099,7 @@ function buildStudio() {
       </div>`;
   }
 
-  return stepperHtml + qualityAlertHtml + errorHtml + progressHtml + panelHtml;
+  return stepperHtml + qualityAlertHtml + errorHtml + progressHtml + '<div class="studio-content-pad">' + panelHtml + '</div>' + renderStickyBottomBar();
 }
 
 // ── Application Root Renderer ─────────────────────────────────────────
