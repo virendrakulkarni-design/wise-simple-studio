@@ -111,6 +111,108 @@ function renderModelSelect() {
   `;
 }
 
+const IMAGE_MODELS = [
+  {
+    id: 'flux',
+    label: 'Flux.1 Schnell (Black Forest Labs - Free)',
+    shortLabel: 'Flux.1 Schnell',
+    badge: 'Free / Quality',
+    desc: 'State-of-the-art open visual flow model. Exceptional character detail, prompt following & photorealism.',
+    engine: 'pollinations',
+    param: 'flux'
+  },
+  {
+    id: 'turbo',
+    label: 'SDXL Turbo (Stability AI - Free / Instant)',
+    shortLabel: 'SDXL Turbo',
+    badge: 'Free / 1-sec',
+    desc: 'Ultra-fast 1-step diffusion model. Generates characters and storyboards in ~1 second.',
+    engine: 'pollinations',
+    param: 'turbo'
+  },
+  {
+    id: 'flux-3d',
+    label: 'Flux 3D Disney/Pixar (Free)',
+    shortLabel: 'Flux 3D Pixar',
+    badge: 'Free / 3D Animation',
+    desc: 'Optimized for 3D CGI animation, Pixar/Disney character models, and vibrant cartoon sets.',
+    engine: 'pollinations',
+    param: 'flux-3d'
+  },
+  {
+    id: 'flux-realism',
+    label: 'Flux Realism (Free)',
+    shortLabel: 'Flux Realism',
+    badge: 'Free / Photoreal',
+    desc: 'Cinematic live action, photorealistic skin textures, dramatic shadows, and natural bokeh.',
+    engine: 'pollinations',
+    param: 'flux-realism'
+  },
+  {
+    id: 'flux-anime',
+    label: 'Flux Anime & Ghibli (Free)',
+    shortLabel: 'Flux Anime',
+    badge: 'Free / Anime',
+    desc: 'Hand-drawn anime aesthetic, Studio Ghibli style landscapes, and manga concept art.',
+    engine: 'pollinations',
+    param: 'flux-anime'
+  },
+  {
+    id: 'sana',
+    label: 'SANA 16K (NVIDIA - Free)',
+    shortLabel: 'SANA (NVIDIA)',
+    badge: 'Free / NVIDIA',
+    desc: 'High-resolution linear-attention synthesis designed by NVIDIA.',
+    engine: 'pollinations',
+    param: 'sana'
+  },
+  {
+    id: 'google-imagen',
+    label: 'Google Imagen 3 (Google AI Studio)',
+    shortLabel: 'Google Imagen 3',
+    badge: 'Google AI / Key',
+    desc: 'Google DeepMind flagship image model (Uses your Google Gemini API Key from Setup).',
+    engine: 'google',
+    param: 'imagen-3.0-generate-002'
+  }
+];
+
+function setImageModel(modelId) {
+  S.activeImageModel = modelId;
+  localStorage.setItem('active-image-model', modelId);
+  const found = IMAGE_MODELS.find(m => m.id === modelId);
+  if (found) {
+    studioLog(`🎨 Switched visual image model to: ${found.label}`);
+  }
+  render();
+}
+
+function renderImageModelSelect(compact = false) {
+  return `
+    <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:600;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px">
+        <i class="ti ti-photo" style="color:var(--brand)"></i> Visual:
+      </span>
+      <select class="select-field" title="Visual Image Model for Characters & Storyboards" onchange="setImageModel(this.value)" style="font-size:12px;padding:${compact ? '4px 8px' : '5px 10px'};background:var(--surface-2);border-color:var(--border-strong)">
+        <optgroup label="✨ Popular & Free Models (No Key Needed)">
+          ${IMAGE_MODELS.filter(m => m.engine === 'pollinations').map(m => `
+            <option value="${m.id}" ${m.id === S.activeImageModel ? 'selected' : ''}>
+              ${compact ? m.shortLabel : m.label}
+            </option>
+          `).join('')}
+        </optgroup>
+        <optgroup label="⚡ Google Visual Models (Requires Google Key)">
+          ${IMAGE_MODELS.filter(m => m.engine === 'google').map(m => `
+            <option value="${m.id}" ${m.id === S.activeImageModel ? 'selected' : ''}>
+              ${compact ? m.shortLabel : m.label} ${!S.googleApiKey ? '(Key Needed)' : '✓'}
+            </option>
+          `).join('')}
+        </optgroup>
+      </select>
+    </div>
+  `;
+}
+
 const STUDIO_STYLES = {
   kids3d: {
     label: '3D Kids Animation (Pixar/Disney)',
@@ -163,6 +265,7 @@ const S = {
   googleDriveFolderUrl: localStorage.getItem('gdrive-folder-url') || 'https://drive.google.com/drive/folders/1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY?usp=sharing',
   availableModels: [...DEFAULT_GROQ_MODELS],
   activeModel: localStorage.getItem('active-model') || 'llama-3.3-70b-versatile',
+  activeImageModel: localStorage.getItem('active-image-model') || 'flux',
   modelsLoading: false,
   showSetup: false,
 
@@ -1859,10 +1962,11 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
   const desc = (customDesc || S.charRoleInput || '').trim();
   const prompt = (customPrompt || S.charPromptInput || generateSampleCharacterPrompt(name, desc)).trim();
 
+  const currentImgModel = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null) || { label: 'Flux.1 Schnell', shortLabel: 'Flux.1', engine: 'pollinations', param: 'flux' };
   S.studioLoading = true;
   S.studioError = '';
-  S.studioProgress = `Generating portrait for "${name}" with AI...`;
-  studioLog(`🎨 Generating character portrait for "${name}"...`);
+  S.studioProgress = `Generating portrait for "${name}" with ${currentImgModel.shortLabel || currentImgModel.label}...`;
+  studioLog(`🎨 Generating character portrait for "${name}" using ${currentImgModel.label}...`);
   render();
 
   try {
@@ -1871,8 +1975,8 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
     const encodedPrompt = encodeURIComponent(cleanPrompt.substring(0, 350));
     const seed = Math.floor(Math.random() * 900000) + 100000;
 
-    // 1. Try Google AI Studio Imagen 3 if Google API key available
-    if (S.googleApiKey) {
+    // 1. If Google Imagen 3 selected and key available
+    if (S.activeImageModel === 'google-imagen' && S.googleApiKey) {
       try {
         const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`;
         const res = await fetch(imagenUrl, {
@@ -1888,17 +1992,18 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
           const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
           if (b64) {
             finalUrl = `data:image/png;base64,${b64}`;
-            studioLog(`✓ Generated "${name}" portrait via Imagen 3!`);
+            studioLog(`✓ Generated "${name}" portrait via Google Imagen 3!`);
           }
         }
       } catch (e) {
-        console.warn('Imagen 3 API attempt failed, using high-speed visual model:', e);
+        console.warn('Google Imagen 3 API attempt failed, falling back to free visual model:', e);
       }
     }
 
-    // 2. High-speed Visual Model (Pollinations AI)
+    // 2. Visual Model via Pollinations AI
     if (!finalUrl) {
-      finalUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true&seed=${seed}`;
+      const modelParam = currentImgModel.engine === 'pollinations' ? currentImgModel.param : 'flux';
+      finalUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true&seed=${seed}&model=${modelParam}`;
     }
 
     // 3. Attempt quick preload to base64 Data URL (max 4s timeout, falls back to direct URL)
@@ -2085,7 +2190,9 @@ async function generateStudioClip(idx) {
     const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
     const aspectHeight = S.studioAspect === '9:16' ? 1024 : (S.studioAspect === '1:1' ? 768 : 576);
     const seed = (idx + 1) * 78910 + 12345;
-    const uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}`;
+    const currentImgModel = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null) || { label: 'Flux.1 Schnell', shortLabel: 'Flux.1', engine: 'pollinations', param: 'flux' };
+    const modelParam = currentImgModel.engine === 'pollinations' ? currentImgModel.param : 'flux';
+    const uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=${modelParam}`;
 
     S.studioClips[idx].status = 'done';
     S.studioClips[idx].imageUrl = uniqueSceneUrl;
@@ -2826,9 +2933,17 @@ function renderSetupModal() {
           <a href="${S.googleDriveFolderUrl || ('https://drive.google.com/drive/folders/' + (S.googleDriveFolderId || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY'))}" target="_blank" rel="noopener" style="color:var(--brand);margin-left:4px;font-weight:600">Open Target Folder in Drive ↗</a>
         </div>
 
-        <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (Optional for Veo 2 / Gemini)</div>
+        <div class="section-label" style="margin-bottom:6px">AI Visual Model (Characters & Storyboards)</div>
+        <div style="margin-bottom:8px">
+          ${renderImageModelSelect()}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">
+          Select which AI model generates your character portraits and storyboard scenes. Free models (Flux.1, SDXL Turbo, SANA) run instantly without any key.
+        </div>
+
+        <div class="section-label" style="margin-bottom:6px">Google AI Studio API Key (Optional for Veo 2 / Google Imagen 3)</div>
         <input type="password" class="input-field" placeholder="AIza..." value="${S.googleApiKey}" oninput="S.googleApiKey=this.value;localStorage.setItem('google-key', this.value)" style="margin-bottom:6px" />
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Optional. If omitted, Wise Studio automatically uses high-speed Free AI Visual Models.</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:16px">Optional. Used if Google Imagen 3 or Veo 2 video generation is selected.</div>
 
         <button class="btn-primary" style="width:100%" onclick="S.showSetup=false;loadGroqModels();render()"><i class="ti ti-check"></i> Save & Continue</button>
       </div>
@@ -3039,7 +3154,8 @@ function buildStudio() {
               Generate character portraits with custom AI prompts, or generate sample prompts tailored to your story & scene requirements.
             </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${renderImageModelSelect(true)}
             <button class="btn-ghost" style="font-size:12px;color:var(--brand);border-color:var(--brand)" onclick="autoGenerateAllStoryCharacters()" ${S.studioLoading ? 'disabled' : ''} title="Generate portraits for all detected characters in the script">
               <i class="ti ti-users-group"></i> Auto-Generate All Story Characters (${detectedChars.length})
             </button>
@@ -3232,8 +3348,16 @@ function buildStudio() {
 
   // Step 4: Video Generation Progress
   if (S.studioStep === 4) {
+    const activeVisualModel = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null) || { label: 'Flux.1 Schnell', shortLabel: 'Flux.1' };
     panelHtml = `
-      <div class="section-label" style="margin-bottom:10px"><i class="ti ti-video"></i> Video Generation Progress</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="section-label" style="margin-bottom:0"><i class="ti ti-video"></i> Storyboard & Video Generation Progress</div>
+        ${renderImageModelSelect(true)}
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
+        <i class="ti ti-info-circle" style="color:var(--brand);font-size:16px"></i>
+        <span>Storyboard scene visuals are rendered using <strong>${activeVisualModel.label}</strong>. You can switch visual engines anytime.</span>
+      </div>
       ${S.studioClips.map((clip, i) => {
         const statusIcon = clip.status === 'done' ? 'ti-circle-check' : clip.status === 'error' ? 'ti-alert-circle' : clip.status === 'generating' || clip.status === 'polling' ? 'ti-loader' : clip.status === 'pending-manual' ? 'ti-hand-click' : 'ti-clock';
         const statusColor = clip.status === 'done' ? 'var(--text-success)' : clip.status === 'error' ? 'var(--text-danger)' : clip.status === 'pending-manual' ? 'var(--text-warning)' : 'var(--text-muted)';
@@ -3362,6 +3486,7 @@ function render() {
         </div>
         <div class="header-right">
           ${renderModelSelect()}
+          ${renderImageModelSelect()}
           <button class="api-status ${statusCls}" onclick="S.showSetup=true;render()">${statusTxt}</button>
           <button class="btn-ghost" style="font-size:12px;padding:6px 12px;${S.historyModal.open ? 'color:var(--brand);font-weight:600;' : ''}" onclick="S.historyModal.open=true;render()" title="Browse project history & cloud backups">
             <i class="ti ti-history"></i> History & Drive
