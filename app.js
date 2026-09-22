@@ -1672,6 +1672,8 @@ Return ONLY valid JSON:
         try {
           result = await callGroq(prompt, 4096);
         } finally {
+      S.studioLoading = false;
+      S.studioLoadingMsg = null;
           S.activeModel = prevModel;
         }
       } else {
@@ -1727,7 +1729,7 @@ function getCharacterSeed(char) {
 
 // ponytail: deleted uncalled buildSceneCharacterPrompt (YAGNI)
 function reRollSceneClip(idx) {
-  studioLog(`↺ Re-rolling Scene ${idx + 1} with character consistency lock...`);
+  studioLog(`↺ Re-generateing Scene ${idx + 1} with character consistency lock...`);
   generateStudioClip(idx);
 }
 
@@ -2383,6 +2385,8 @@ async function generateStoryboardImage(idx) {
       error: 'Scene missing character assignment! Please assign at least one character in Step 3.',
       approved: false
     };
+    S.studioLoading = true;
+    S.studioLoadingMsg = 'Generating scene artwork...';
     render();
     return;
   }
@@ -2501,7 +2505,7 @@ function unapproveStoryboardFrame(idx) {
 }
 
 async function rerollStoryboardFrame(idx) {
-  studioLog(`↺ Re-rolling storyboard frame ${idx + 1}...`);
+  studioLog(`↺ Re-generateing storyboard frame ${idx + 1}...`);
   await generateStoryboardImage(idx);
 }
 
@@ -3687,6 +3691,13 @@ function canNavigateToStep(i) {
 }
 
 function buildStudio() {
+  if (S.studioStep === 2 && (!S.studioPrompts || !S.studioPrompts.length)) {
+    if (S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript))) {
+      S.studioPrompts = generateFallbackPrompts(S.studioScript);
+      saveStudioState();
+    }
+  }
+
   const steps = [
     { icon: 'ti-bulb',       label: 'Concept' },
     { icon: 'ti-script',     label: 'Script' },
@@ -3834,12 +3845,6 @@ function buildStudio() {
 
   // Step 2: Cinematic Prompts
   if (S.studioStep === 2) {
-    if (!S.studioPrompts || !S.studioPrompts.length) {
-      if (S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript))) {
-        S.studioPrompts = generateFallbackPrompts(S.studioScript);
-        saveStudioState();
-      }
-    }
     panelHtml = `
       <div class="section-label" style="margin-bottom:10px"><i class="ti ti-wand"></i> Cinematic Video Prompts (${S.studioPrompts.length})</div>
       ${S.studioPrompts.map((p, i) => `
@@ -4225,7 +4230,7 @@ function buildStudio() {
 
               <div style="display:flex;gap:4px;flex-wrap:wrap">
                 ${sb.imageUrl || sb.status === 'generating' ? `<button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="rerollStoryboardFrame(${i})" ${sb.status === 'generating' || S.studioLoading ? 'disabled' : ''}>
-                  <i class="ti ${sb.status === 'generating' ? 'ti-loader studio-spin' : 'ti-rotate'}"></i> ${sb.status === 'generating' ? 'Generating...' : 'Re-roll'}
+                  <i class="ti ${sb.status === 'generating' ? 'ti-loader studio-spin' : 'ti-rotate'}"></i> ${sb.status === 'generating' ? 'Generating...' : 'Re-generate'}
                 </button>` : ''}
                 ${sb.status === 'done' && !sb.approved ? `
                   <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--text-success)" onclick="approveStoryboardFrame(${i})">
@@ -4366,7 +4371,7 @@ if (S.studioStep === 5) {
                 </div>
               ` : ''}
               <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="reRollSceneClip(${i})" ${S.studioLoading ? 'disabled' : ''} title="Re-generate this scene with character consistency lock">
-                <i class="ti ti-rotate"></i> Re-roll Scene
+                <i class="ti ti-rotate"></i> Re-generate Scene
               </button>
               ${clip.status === 'error' ? `<button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--brand)" onclick="generateStudioClip(${i})"><i class="ti ti-refresh"></i> Retry</button>` : ''}
               ${!clip.videoUrl && clip.status !== 'generating' && clip.status !== 'polling' ? `
@@ -4430,7 +4435,7 @@ if (S.studioStep === 5) {
          onerror="if(this.src!=='${resolveAssetUrl(clip.characterUrl || '')}'){this.src='${resolveAssetUrl(clip.characterUrl || '')}';}" 
          class="studio-clip-preview" 
          alt="Scene ${i+1}" />
-    <button type="button" class="btn-ghost" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;font-size:10px;border-radius:4px;color:#fff;border:1px solid rgba(255,255,255,0.2)" onclick="reRollSceneClip(${i})" title="Re-roll this scene visual">
+    <button type="button" class="btn-ghost" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;font-size:10px;border-radius:4px;color:#fff;border:1px solid rgba(255,255,255,0.2)" onclick="reRollSceneClip(${i})" title="Re-generate this scene visual">
       <i class="ti ti-rotate"></i>
     </button>
   </div>
