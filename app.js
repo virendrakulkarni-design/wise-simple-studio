@@ -4041,7 +4041,7 @@ function buildStudio() {
               <i class="ti ti-wand"></i> Auto-Match All
             </button>
             <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
-              Next: Generate Video Clips <i class="ti ti-arrow-right"></i>
+              Next: Storyboard <i class="ti ti-arrow-right"></i>
             </button>
           </div>
         </div>
@@ -4122,7 +4122,6 @@ function buildStudio() {
     `;
   }
 
-  // Step 4: Video Generation Progress
   
   // Step 4: Storyboard Generation & Review (NEW)
   if (S.studioStep === 4) {
