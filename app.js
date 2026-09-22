@@ -2407,7 +2407,7 @@ async function generateStoryboardImage(idx) {
 
   try {
     // Build scene-specific visual prompt
-    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'character visual design').substring(0, 100);
+    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 100) + '. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing from character sheet. Same character continuously in every scene';
     const scenePrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). Cinematic scene composition, high quality, detailed background.`;
     const negPrompt = 'character sheet, expression grid, palette, text, watermark, logo, collage, multi-panel, tiled, split screen, blurry, low quality, mutated, deformed';
 
@@ -2416,9 +2416,13 @@ async function generateStoryboardImage(idx) {
     let imageUrl = null;
 
     // ponytail: unified fetchImage replaces 35 lines of duplicate Imagen/Pollinations branching
+    const charBaseSeed = getCharacterSeed(primaryChar);
+    const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
+
     imageUrl = await fetchImage({
       prompt: scenePrompt,
       aspect: S.studioAspect,
+      seed: seed,
       negative: negPrompt,
       model: imgModel === 'nanobanana' ? 'nano-banana' : 'flux'
     });
@@ -2558,7 +2562,7 @@ async function generateStudioClip(idx) {
       if (S.googleApiKey) {
         try {
           studioLog(`🎬 Scene ${idx + 1}: Calling Google Flow / Veo 2 video API...`);
-          const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'character visual design').substring(0, 100);
+          const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 100) + '. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing from character sheet. Same character continuously in every scene';
           const veoFullPrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). 3D animated scene.`;
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${S.googleApiKey}`, {
             method: 'POST',
@@ -2609,7 +2613,7 @@ async function generateStudioClip(idx) {
     // Extract clean character visual traits without confusing sheet/expression words
     const cleanChars = assignedChars.map(c => {
       const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, 'appearance').trim();
-      return `${c.name} (${d.substring(0, 80)})`;
+      return `[CANONICAL CHARACTER REFERENCE: "${c.name.toUpperCase()}"]: ${d.substring(0, 80)}. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing across all scenes. Never age up. Never substitute species.`;
     }).join(' and ');
 
     // Explicit single scene shot prompt:
