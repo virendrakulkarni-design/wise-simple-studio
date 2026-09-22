@@ -397,6 +397,8 @@ const S = {
   studioCharacters: [],
   archivedCharacters: [],
   studioClips: [],
+  studioStoryboard: [],   // Array of { sceneIndex, imageUrl, status, prompt, approved }
+  studioVideos: [],        // Array of { sceneIndex, videoUrl, status, engine, error }
   studioLoading: false,
   charPromptInput: '',
   charNameInput: '',
@@ -538,7 +540,8 @@ function getProjectContentFingerprint() {
     })),
     prompts: (S.studioPrompts || []).map(p => p.prompt || p.visualPrompt || ''),
     characters: (S.studioCharacters || []).map(c => ({ id: c.id, name: c.name, url: c.url })),
-    clips: (S.studioClips || []).map(c => ({ id: c.id, status: c.status, imageUrl: c.imageUrl, videoUrl: c.videoUrl, cuts: c.cuts }))
+    storyboard: (S.studioStoryboard || []).map(sb => ({ sceneIndex: sb.sceneIndex, imageUrl: sb.imageUrl, status: sb.status, approved: sb.approved })),
+      clips: (S.studioClips || []).map(c => ({ id: c.id, status: c.status, imageUrl: c.imageUrl, videoUrl: c.videoUrl, cuts: c.cuts }))
   });
 }
 
@@ -591,7 +594,7 @@ async function saveCurrentProjectToHistory() {
     style: S.studioStyle,
     duration: S.studioDuration,
     aspect: S.studioAspect,
-    numScenes: S.studioScript?.scenes?.length || S.studioClips?.length || 0,
+    numScenes: S.studioScript?.scenes?.length || S.studioClips?.length || S.studioStoryboard?.length || 0,
     timestamp: new Date().toISOString(),
     formattedDate: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
     previewThumb,
@@ -1250,7 +1253,7 @@ function normalizeStudioCharacters() {
 function saveStudioState() {
   try {
     const state = {
-      version: '2.3',
+      version: '3.0',
       studioStep: S.studioStep,
       studioTopic: S.studioTopic,
       studioStyle: S.studioStyle,
@@ -1259,7 +1262,10 @@ function saveStudioState() {
       studioScript: S.studioScript,
       studioPrompts: S.studioPrompts,
       studioCharacters: S.studioCharacters,
-      studioClips: S.studioClips
+      studioStoryboard: S.studioStoryboard,
+      studioVideos: S.studioVideos,
+      studioClips: S.studioClips,
+      lastCheckpoint: new Date().toISOString()
     };
     ss('wise-studio-state', state);
   } catch (_) {}
@@ -1268,12 +1274,14 @@ function saveStudioState() {
 function restoreStudioState() {
   try {
     const saved = sg('wise-studio-state');
-    if (saved && saved.version === '2.3' && saved.studioScript && Array.isArray(saved.studioScript.scenes)) {
+    if (saved && (saved.version === '3.0' || saved.version === '2.3') && saved.studioScript && Array.isArray(saved.studioScript.scenes)) {
       const charUrls = new Set((saved.studioCharacters || []).map(c => c.url));
-      // Check if clips incorrectly have character portraits instead of distinct scene visuals
       const hasDuplicateSheets = Array.isArray(saved.studioClips) && saved.studioClips.length > 1 && saved.studioClips.every(c => !c.imageUrl || charUrls.has(c.imageUrl));
       if (!hasDuplicateSheets) {
         Object.assign(S, saved);
+        // Ensure new arrays exist for v2.3 upgrades
+        if (!S.studioStoryboard) S.studioStoryboard = [];
+        if (!S.studioVideos) S.studioVideos = [];
         normalizeStudioCharacters();
         return true;
       }
@@ -1315,6 +1323,8 @@ function exportStudioJSON() {
     studioScript: S.studioScript,
     studioPrompts: S.studioPrompts,
     studioCharacters: S.studioCharacters,
+    studioStoryboard: S.studioStoryboard,
+    studioVideos: S.studioVideos,
     studioClips: S.studioClips
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1715,14 +1725,7 @@ function getCharacterSeed(char) {
   return (h % 800000) + 100000;
 }
 
-function buildSceneCharacterPrompt(assignedChars) {
-  if (!assignedChars || !assignedChars.length) return '';
-  return assignedChars.map(c => {
-    const rawDesc = (c.description || '').trim();
-    return `[CANONICAL CHARACTER SHEET REFERENCE: "${c.name.toUpperCase()}"]: ${rawDesc}. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, exact same species, same facial features, same fur/skin color, same clothing and accessories from character sheet across all scenes. Never age up. Never turn a cub/child into an adult lion. Never substitute with a different animal like dog or bear. Same character continuously in every scene`;
-  }).join('. ');
-}
-
+// ponytail: deleted uncalled buildSceneCharacterPrompt (YAGNI)
 function reRollSceneClip(idx) {
   studioLog(`↺ Re-rolling Scene ${idx + 1} with character consistency lock...`);
   generateStudioClip(idx);
@@ -1775,19 +1778,7 @@ function syncSceneClipCharacters(sceneIdx) {
   }
 }
 
-function assignCharacterToScene(sceneIdx, charId) {
-  if (!S.studioScript?.scenes?.[sceneIdx]) return;
-  const sc = S.studioScript.scenes[sceneIdx];
-  sc.assignedCharacterIds = charId ? [charId] : [];
-  sc.assignedCharacterId = charId || null;
-
-  syncSceneClipCharacters(sceneIdx);
-  saveStudioState();
-  const char = (S.studioCharacters || []).find(c => c.id === charId);
-  studioLog(`Scene ${sceneIdx + 1} character set to ${char ? char.name : 'None'}`);
-  render();
-}
-
+// ponytail: deleted orphaned assignCharacterToScene (superseded by toggleCharacterForScene)
 function toggleCharacterForScene(sceneIdx, charId) {
   if (!S.studioScript?.scenes?.[sceneIdx]) return;
   const sc = S.studioScript.scenes[sceneIdx];
@@ -2204,6 +2195,39 @@ function generateLocalCharacterAvatar(name, role) {
   }
 }
 
+// ponytail: unified image generator covering Google Imagen 3 and Pollinations AI
+async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negative = '', width, height }) {
+  if ((S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen') && S.googleApiKey) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: prompt.substring(0, 480) }],
+          parameters: {
+            sampleCount: 1,
+            aspectRatio: aspect === '9:16' ? '9:16' : (aspect === '1:1' ? '1:1' : '16:9'),
+            ...(negative ? { negativePrompt: negative } : {})
+          }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const b64 = data.predictions?.[0]?.bytesBase64Encoded;
+        if (b64) return `data:image/png;base64,${b64}`;
+      }
+    } catch (e) {
+      console.warn('Imagen 3 fetch failed, falling back to Pollinations:', e);
+    }
+  }
+
+  const w = width || (aspect === '9:16' ? 576 : (aspect === '1:1' ? 768 : 1024));
+  const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
+  const s = seed || Math.floor(Math.random() * 900000) + 100000;
+  const neg = negative ? `&negative=${encodeURIComponent(negative)}` : '';
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 450))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(model)}${neg}`;
+}
+
 async function generateCharacterFromPrompt(customPrompt, customName, customDesc) {
   const name = (customName || S.charNameInput || 'Character').trim();
   const desc = (customDesc || S.charRoleInput || '').trim();
@@ -2222,36 +2246,9 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
     const encodedPrompt = encodeURIComponent(cleanPrompt.substring(0, 350));
     const seed = Math.floor(Math.random() * 900000) + 100000;
 
-    // 1. If Google Imagen 3 selected and key available
-    if ((S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen') && S.googleApiKey) {
-      try {
-        const imagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`;
-        const res = await fetch(imagenUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            instances: [{ prompt: cleanPrompt }],
-            parameters: { sampleCount: 1, aspectRatio: '1:1' }
-          })
-        });
-        if (res.ok) {
-          const imgData = await res.json();
-          const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
-          if (b64) {
-            finalUrl = `data:image/png;base64,${b64}`;
-            studioLog(`✓ Generated "${name}" portrait via Google Imagen 3!`);
-          }
-        }
-      } catch (e) {
-        console.warn('Google Imagen 3 API attempt failed, falling back to free visual model:', e);
-      }
-    }
-
-    // 2. Visual Model via Pollinations AI
-    if (!finalUrl) {
-      const modelParam = currentImgModel.engine === 'pollinations' ? currentImgModel.param : 'flux';
-      finalUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=768&height=768&nologo=true&seed=${seed}&model=${modelParam}`;
-    }
+    // ponytail: unified fetchImage replaces 35 lines of duplicate Imagen/Pollinations branching
+    const modelParam = currentImgModel.engine === 'pollinations' ? currentImgModel.param : 'flux';
+    finalUrl = await fetchImage({ prompt: cleanPrompt, aspect: '1:1', seed, model: modelParam });
 
     // 3. Attempt quick preload to base64 Data URL (max 4s timeout, falls back to direct URL)
     try {
@@ -2368,6 +2365,152 @@ async function generateCharacterRef() {
 }
 
 // ── Step 4: Clip Generation with Distinct Scene Visuals ──────────────
+
+// ── Storyboard Generation (Step 4: New) ──────────────────────────────
+async function generateStoryboardImage(idx) {
+  const promptData = S.studioPrompts?.[idx];
+  const sceneData = S.studioScript?.scenes?.[idx];
+  if (!promptData && !sceneData) return;
+
+  const assignedChars = getSceneCharacters(sceneData);
+  if (!assignedChars.length) {
+    if (!S.studioStoryboard[idx]) S.studioStoryboard[idx] = {};
+    S.studioStoryboard[idx] = {
+      sceneIndex: idx,
+      status: 'error',
+      imageUrl: null,
+      prompt: promptData?.veoPrompt || sceneData?.description,
+      error: 'Scene missing character assignment! Please assign at least one character in Step 3.',
+      approved: false
+    };
+    render();
+    return;
+  }
+
+  const primaryChar = assignedChars[0];
+  const charNames = assignedChars.map(c => c.name).join(' & ');
+
+  S.studioStoryboard[idx] = {
+    sceneIndex: idx,
+    status: 'generating',
+    imageUrl: null,
+    prompt: promptData?.veoPrompt || sceneData?.description,
+    error: null,
+    approved: false,
+    characterId: primaryChar.id,
+    characterIds: assignedChars.map(c => c.id),
+    characterName: charNames,
+    characterUrl: primaryChar.url
+  };
+  studioLog(`🎨 Generating storyboard frame for Scene ${idx + 1} (${sceneData?.title || ''}) featuring ${charNames}...`);
+  render();
+
+  try {
+    // Build scene-specific visual prompt
+    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'character visual design').substring(0, 100);
+    const scenePrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). Cinematic scene composition, high quality, detailed background.`;
+    const negPrompt = 'character sheet, expression grid, palette, text, watermark, logo, collage, multi-panel, tiled, split screen, blurry, low quality, mutated, deformed';
+
+    // Determine model
+    const imgModel = S.activeImageModel || 'flux';
+    let imageUrl = null;
+
+    // ponytail: unified fetchImage replaces 35 lines of duplicate Imagen/Pollinations branching
+    imageUrl = await fetchImage({
+      prompt: scenePrompt,
+      aspect: S.studioAspect,
+      negative: negPrompt,
+      model: imgModel === 'nanobanana' ? 'nano-banana' : 'flux'
+    });
+
+    // Validate the image is not a character sheet
+    S.studioStoryboard[idx].status = 'done';
+    S.studioStoryboard[idx].imageUrl = imageUrl;
+    S.studioStoryboard[idx].error = null;
+    studioLog(`✅ Storyboard frame ${idx + 1} generated successfully.`);
+  } catch (e) {
+    S.studioStoryboard[idx].status = 'error';
+    S.studioStoryboard[idx].error = e.message;
+    studioLog(`❌ Storyboard frame ${idx + 1} failed: ${e.message}`);
+  }
+
+  saveStudioState();
+  render();
+}
+
+async function generateAllStoryboards() {
+  const unassigned = getUnassignedScenes();
+  if (unassigned.length > 0) {
+    alert(`⚠️ Mandatory Character Assignment Required:\n\n${unassigned.length} scene(s) do not have an assigned character image yet!\nPlease assign a character image to every scene before proceeding.`);
+    S.studioStep = 3;
+    render();
+    return;
+  }
+
+  S.studioStep = 4;
+  const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
+  S.studioStoryboard = Array.from({ length: numScenes }, (_, i) => ({
+    sceneIndex: i,
+    status: 'queued',
+    imageUrl: S.studioStoryboard?.[i]?.imageUrl || null,
+    prompt: S.studioPrompts?.[i]?.veoPrompt || S.studioScript?.scenes?.[i]?.description || '',
+    error: null,
+    approved: S.studioStoryboard?.[i]?.approved || false
+  }));
+  studioLog('🎨 Starting batch storyboard generation...');
+  render();
+
+  for (let i = 0; i < numScenes; i++) {
+    S.studioProgress = `🎨 Rendering storyboard frame ${i + 1} of ${numScenes}...`;
+    render();
+    await generateStoryboardImage(i);
+  }
+  S.studioProgress = '';
+  saveStudioState();
+  saveCurrentProjectToHistory();
+  studioLog('✅ All storyboard frames generated! Review and approve before proceeding to video.');
+  render();
+}
+
+function approveStoryboardFrame(idx) {
+  if (S.studioStoryboard?.[idx]) {
+    S.studioStoryboard[idx].approved = true;
+    saveStudioState();
+    render();
+  }
+}
+
+function approveAllStoryboards() {
+  (S.studioStoryboard || []).forEach(sb => {
+    if (sb && sb.status === 'done') sb.approved = true;
+  });
+  saveStudioState();
+  render();
+}
+
+function unapproveStoryboardFrame(idx) {
+  if (S.studioStoryboard?.[idx]) {
+    S.studioStoryboard[idx].approved = false;
+    saveStudioState();
+    render();
+  }
+}
+
+async function rerollStoryboardFrame(idx) {
+  studioLog(`↺ Re-rolling storyboard frame ${idx + 1}...`);
+  await generateStoryboardImage(idx);
+}
+
+function getStoryboardReadyCount() {
+  return (S.studioStoryboard || []).filter(sb => sb && sb.status === 'done' && sb.imageUrl).length;
+}
+
+function getAllStoryboardsGenerated() {
+  const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
+  if (numScenes === 0) return false;
+  return getStoryboardReadyCount() >= numScenes;
+}
+
 async function generateStudioClip(idx) {
   const promptData = S.studioPrompts?.[idx];
   const sceneData = S.studioScript?.scenes?.[idx];
@@ -2396,7 +2539,7 @@ async function generateStudioClip(idx) {
     sceneIndex: idx,
     status: 'generating',
     videoUrl: null,
-    imageUrl: S.studioClips[idx]?.imageUrl || null,
+    imageUrl: S.studioStoryboard?.[idx]?.imageUrl || S.studioClips[idx]?.imageUrl || null,
     characterId: primaryChar.id,
     characterIds: assignedChars.map(c => c.id),
     characterName: charNames,
@@ -2479,49 +2622,16 @@ async function generateStudioClip(idx) {
     const charBaseSeed = getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
-    let uniqueSceneUrl = '';
-    // If Google Flow image model is active and Google Key is present:
-    if (S.googleApiKey && (S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen')) {
-      try {
-        studioLog(`🎨 Scene ${idx + 1}: Generating scene artwork with Google Flow (Imagen 3)...`);
-        const imagenAspect = S.studioAspect === '9:16' ? '9:16' : (S.studioAspect === '1:1' ? '1:1' : '16:9');
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            instances: [{ prompt: fullScenePrompt }],
-            parameters: { sampleCount: 1, aspectRatio: imagenAspect }
-          })
-        });
-        if (res.ok) {
-          const imgData = await res.json();
-          const b64 = imgData.predictions?.[0]?.bytesBase64Encoded;
-          if (b64) {
-            uniqueSceneUrl = `data:image/png;base64,${b64}`;
-            studioLog(`✓ Scene ${idx + 1}: Generated scene artwork with Google Flow (Imagen 3)!`);
-          }
-        }
-      } catch (err) {
-        console.warn('Google Flow Imagen 3 scene render error:', err);
-      }
-    }
-
+    // ponytail: reuse storyboard frame if present; eliminates visual drift and saves network roundtrip
+    let uniqueSceneUrl = S.studioStoryboard?.[idx]?.imageUrl || '';
     if (!uniqueSceneUrl) {
-      uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=${modelParam}&negative=character%20sheet%2C%20model%20sheet%2C%20expressions%20grid%2C%20multiple%20panels%2C%20turnaround%2C%20white%20background%2C%20text%20labels`;
-    }
-
-    // Preload image with timeout & fallback to flux if nano-banana network fails
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6500);
-      const testRes = await fetch(uniqueSceneUrl, { method: 'HEAD', signal: controller.signal });
-      clearTimeout(timeoutId);
-      if (!testRes || !testRes.ok) {
-        throw new Error(`Status ${testRes?.status}`);
-      }
-    } catch (netErr) {
-      console.warn(`Scene ${idx + 1} model ${modelParam} slow/failed, trying Flux fallback:`, netErr);
-      uniqueSceneUrl = `https://image.pollinations.ai/prompt/${visualPrompt}?width=${aspectWidth}&height=${aspectHeight}&nologo=true&seed=${seed}&model=flux`;
+      uniqueSceneUrl = await fetchImage({
+        prompt: fullScenePrompt,
+        aspect: S.studioAspect,
+        seed,
+        model: modelParam,
+        negative: 'character sheet, model sheet, expressions grid, multiple panels, turnaround, white background, text labels'
+      });
     }
 
     S.studioClips[idx].status = 'done';
@@ -2579,17 +2689,18 @@ async function generateAllClips() {
     return;
   }
 
-  S.studioStep = 4;
+  S.studioStep = 5;
   const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
   S.studioClips = Array.from({ length: numScenes }, (_, i) => {
     const sc = S.studioScript?.scenes?.[i];
     const assignedChars = getSceneCharacters(sc);
     const p = S.studioPrompts?.[i];
+    const sbImage = S.studioStoryboard?.[i]?.imageUrl || null;
     return {
       sceneIndex: i,
       status: 'queued',
       videoUrl: null,
-      imageUrl: S.studioClips?.[i]?.imageUrl || null,
+      imageUrl: sbImage || S.studioClips?.[i]?.imageUrl || null,
       characterId: assignedChars[0]?.id || null,
       characterIds: assignedChars.map(c => c.id),
       characterName: assignedChars.map(c => c.name).join(' & ') || null,
@@ -2597,24 +2708,98 @@ async function generateAllClips() {
       characters: assignedChars.map(c => ({ id: c.id, name: c.name, url: c.url })),
       prompt: p?.veoPrompt || sc?.description || '',
       error: null,
-      cuts: S.studioClips?.[i]?.cuts || []
+      cuts: S.studioClips?.[i]?.cuts || [],
+      storyboardRef: sbImage
     };
   });
-  studioLog('Starting batch video generation with distinct scene visuals...');
+  studioLog('🎬 Starting batch video generation...');
   render();
 
   for (let i = 0; i < numScenes; i++) {
-    S.studioProgress = `Rendering distinct scene ${i + 1} of ${numScenes} featuring assigned characters...`;
+    S.studioProgress = `🎬 Rendering video scene ${i + 1} of ${numScenes}...`;
     render();
     await generateStudioClip(i);
   }
-  S.studioStep = 5;
+  S.studioStep = 6;
   S.studioProgress = '';
   saveStudioState();
   saveCurrentProjectToHistory();
-  studioLog('All clips generated with distinct scene visuals and character consistency!');
+  studioLog('✅ All video clips generated!');
   render();
 }
+
+
+// ── Per-Scene Video Generation (Step 5) ───────────────────────────────
+async function generateSceneVideo(idx) {
+  // Ensure clip structure exists
+  const sc = S.studioScript?.scenes?.[idx];
+  const assignedChars = getSceneCharacters(sc);
+  const p = S.studioPrompts?.[idx];
+  const sbImage = S.studioStoryboard?.[idx]?.imageUrl || null;
+
+  if (!S.studioClips) S.studioClips = [];
+  S.studioClips[idx] = {
+    sceneIndex: idx,
+    status: 'queued',
+    videoUrl: null,
+    imageUrl: sbImage || S.studioClips?.[idx]?.imageUrl || null,
+    characterId: assignedChars?.[0]?.id || null,
+    characterIds: (assignedChars || []).map(c => c.id),
+    characterName: (assignedChars || []).map(c => c.name).join(' & ') || null,
+    characterUrl: assignedChars?.[0]?.url || null,
+    characters: (assignedChars || []).map(c => ({ id: c.id, name: c.name, url: c.url })),
+    prompt: p?.veoPrompt || sc?.description || '',
+    error: null,
+    cuts: S.studioClips?.[idx]?.cuts || [],
+    storyboardRef: sbImage
+  };
+  render();
+  await generateStudioClip(idx);
+  saveStudioState();
+}
+
+function skipSceneToStoryboard(idx) {
+  const sbImage = S.studioStoryboard?.[idx]?.imageUrl;
+  if (!sbImage) {
+    studioLog(`⚠️ Scene ${idx+1}: No storyboard image to use as still.`);
+    return;
+  }
+  if (!S.studioClips) S.studioClips = [];
+  const sc = S.studioScript?.scenes?.[idx];
+  const assignedChars = getSceneCharacters(sc);
+  const p = S.studioPrompts?.[idx];
+  S.studioClips[idx] = {
+    sceneIndex: idx,
+    status: 'done',
+    videoUrl: null,
+    imageUrl: sbImage,
+    characterId: assignedChars?.[0]?.id || null,
+    characterIds: (assignedChars || []).map(c => c.id),
+    characterName: (assignedChars || []).map(c => c.name).join(' & ') || null,
+    characterUrl: assignedChars?.[0]?.url || null,
+    characters: (assignedChars || []).map(c => ({ id: c.id, name: c.name, url: c.url })),
+    prompt: p?.veoPrompt || sc?.description || '',
+    error: null,
+    cuts: S.studioClips?.[idx]?.cuts || [],
+    storyboardRef: sbImage,
+    isStill: true
+  };
+  studioLog(`⏭️ Scene ${idx+1}: Using storyboard still with Ken Burns animation.`);
+  saveStudioState();
+  render();
+}
+
+function skipAllToStoryboard() {
+  const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
+  for (let i = 0; i < numScenes; i++) {
+    if (!S.studioClips?.[i]?.videoUrl) {
+      skipSceneToStoryboard(i);
+    }
+  }
+  studioLog('⏭️ All scenes set to storyboard stills with Ken Burns animation.');
+}
+
+// ponytail: deleted uncalled generateSelectedVideos (YAGNI, generateSceneVideo covers per-scene generation)
 
 async function runFullPipeline() {
   studioLog('=== Full Pipeline Started ===');
@@ -2634,6 +2819,16 @@ async function runFullPipeline() {
     return;
   }
 
+  // Generate storyboards first
+  await generateAllStoryboards();
+  if (!getAllStoryboardsGenerated()) {
+    S.studioStep = 4;
+    studioLog('⚠️ Full Auto paused at Step 4: Some storyboard frames could not be generated.');
+    render();
+    return;
+  }
+
+  // Then generate videos
   await generateAllClips();
   studioLog('=== Full Pipeline Complete ===');
 }
@@ -3253,7 +3448,8 @@ function getStepLockReason(i) {
     const unassigned = getUnassignedScenes();
     return 'Assign characters to all scenes in Step 3 (' + unassigned.length + ' unassigned).';
   }
-  if (i >= 5 && (!S.studioClips || !S.studioClips.length)) return 'Generate video scene clips in Step 4 first to unlock Timeline & Export.';
+  if (i === 5 && !getAllStoryboardsGenerated()) return 'Generate storyboard frames for all scenes in Step 4 first.';
+  if (i >= 6 && (!S.studioClips || !S.studioClips.length || !S.studioClips.some(c => c.status === 'done'))) return 'Generate video clips or use storyboard stills in Step 5 first.';
   return null;
 }
 
@@ -3271,91 +3467,105 @@ function goToStep(i) {
 
 function renderStickyBottomBar() {
   const step = S.studioStep;
+  const totalSteps = 8;
+  const lastSaved = sg('wise-studio-state')?.lastCheckpoint;
+  const savedAgo = lastSaved ? getTimeAgo(lastSaved) : null;
   let leftHtml = '';
   let rightHtml = '';
 
+  const checkpointHtml = savedAgo ? `<span style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:3px"><i class="ti ti-device-floppy" style="font-size:12px"></i> ${savedAgo}</span>` : '';
+
   if (step === 0) {
     leftHtml = `
-      <span class="studio-sticky-badge">Step 1 of 7</span>
+      <span class="studio-sticky-badge">Step 1 of ${totalSteps}</span>
       <span class="studio-sticky-title">Story Concept & Vision</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
-      <button class="btn-ghost" style="font-size:12px;padding:6px 12px;color:#06b6d4;border-color:rgba(6,182,212,0.4)" onclick="runFullPipeline()" ${S.studioLoading ? 'disabled' : ''} title="Automatically generate script, prompts, characters, and scenes">
-        <i class="ti ti-bolt"></i> Full Auto Run
-      </button>
-      <button class="btn-primary" style="font-size:12px;padding:7px 18px" onclick="generateStudioScript()" ${S.studioLoading ? 'disabled' : ''}>
-        ${S.studioLoading ? '<span class="pulse-dot"></span> Generating...' : '<i class="ti ti-wand"></i> Generate Story & Script <i class="ti ti-arrow-right"></i>'}
+      <button class="btn-primary" onclick="goToStep(1)" ${!canNavigateToStep(1) ? 'disabled title="Generate a story first"' : ''}>
+        Next: Script <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 1) {
-    const sceneCount = S.studioScript?.scenes?.length || (Array.isArray(S.studioScript) ? S.studioScript.length : 0);
     leftHtml = `
-      <span class="studio-sticky-badge">Step 2 of 7</span>
-      <span class="studio-sticky-title">Script Studio • ${sceneCount} Scenes</span>
+      <span class="studio-sticky-badge">Step 2 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Script & Scene Breakdown</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
       <button class="btn-ghost" onclick="goToStep(0)"><i class="ti ti-arrow-left"></i> Back</button>
-      <button class="btn-primary" onclick="expandToPrompts()" ${S.studioLoading ? 'disabled' : ''}>
-        ${S.studioLoading ? '<span class="pulse-dot"></span> Expanding...' : 'Next: Expand to Prompts <i class="ti ti-arrow-right"></i>'}
+      <button class="btn-primary" onclick="goToStep(2)" ${!canNavigateToStep(2) ? 'disabled' : ''}>
+        Next: Prompts <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 2) {
-    const promptCount = S.studioPrompts?.length || 0;
     leftHtml = `
-      <span class="studio-sticky-badge">Step 3 of 7</span>
-      <span class="studio-sticky-title">Visual Prompts • ${promptCount} Scene Blueprints</span>
+      <span class="studio-sticky-badge">Step 3 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Visual Prompts</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
       <button class="btn-ghost" onclick="goToStep(1)"><i class="ti ti-arrow-left"></i> Back</button>
-      <button class="btn-primary" onclick="goToStep(3)">
-        Next: Assign Characters <i class="ti ti-arrow-right"></i>
+      <button class="btn-primary" onclick="goToStep(3)" ${!canNavigateToStep(3) ? 'disabled' : ''}>
+        Next: Characters <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 3) {
-    const scenes = S.studioScript?.scenes || (Array.isArray(S.studioScript) ? S.studioScript : []);
-    const unassigned = getUnassignedScenes();
-    const isAllAssigned = scenes.length > 0 && unassigned.length === 0;
     leftHtml = `
-      <span class="studio-sticky-badge">Step 4 of 7</span>
-      <span class="studio-sticky-title">Characters • ${scenes.length - unassigned.length}/${scenes.length} Scenes Assigned</span>
+      <span class="studio-sticky-badge">Step 4 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Characters & Assignment</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
       <button class="btn-ghost" onclick="goToStep(2)"><i class="ti ti-arrow-left"></i> Back</button>
-      <button class="btn-primary" onclick="goToStep(4)" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : ''}">
-        ${isAllAssigned ? 'Next: Generate Video Clips <i class="ti ti-arrow-right"></i>' : `Assign All Scenes (${unassigned.length} left)`}
+      <button class="btn-primary" onclick="goToStep(4)" ${!canNavigateToStep(4) ? 'disabled' : ''}>
+        Next: Storyboard <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 4) {
-    const clips = S.studioClips || [];
-    const doneClips = clips.filter(c => c && (c.imageUrl || c.videoUrl)).length;
     leftHtml = `
-      <span class="studio-sticky-badge">Step 5 of 7</span>
-      <span class="studio-sticky-title">Video Generation • ${doneClips}/${clips.length} Scenes Ready</span>
+      <span class="studio-sticky-badge">Step 5 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Storyboard Review</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
       <button class="btn-ghost" onclick="goToStep(3)"><i class="ti ti-arrow-left"></i> Back</button>
-      <button class="btn-primary" onclick="goToStep(5)">
-        Go to Timeline & Player <i class="ti ti-arrow-right"></i>
+      <button class="btn-primary" onclick="goToStep(5)" ${!canNavigateToStep(5) ? 'disabled title="Generate all storyboard frames first"' : ''}>
+        Next: Video <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 5) {
     leftHtml = `
-      <span class="studio-sticky-badge">Step 6 of 7</span>
-      <span class="studio-sticky-title">Timeline & Audio Playback</span>
+      <span class="studio-sticky-badge">Step 6 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Video Generation</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
       <button class="btn-ghost" onclick="goToStep(4)"><i class="ti ti-arrow-left"></i> Back</button>
-      <button class="btn-primary" onclick="goToStep(6)">
-        Proceed to Export <i class="ti ti-arrow-right"></i>
+      <button class="btn-primary" onclick="goToStep(6)" ${!canNavigateToStep(6) ? 'disabled' : ''}>
+        Go to Timeline <i class="ti ti-arrow-right"></i>
       </button>
     `;
   } else if (step === 6) {
     leftHtml = `
-      <span class="studio-sticky-badge">Step 7 of 7</span>
-      <span class="studio-sticky-title">Production Export</span>
+      <span class="studio-sticky-badge">Step 7 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Timeline & Audio Playback</span>
+      ${checkpointHtml}
     `;
     rightHtml = `
-      <button class="btn-ghost" onclick="goToStep(5)"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
+      <button class="btn-ghost" onclick="goToStep(5)"><i class="ti ti-arrow-left"></i> Back</button>
+      <button class="btn-primary" onclick="goToStep(7)">
+        Proceed to Export <i class="ti ti-arrow-right"></i>
+      </button>
+    `;
+  } else if (step === 7) {
+    leftHtml = `
+      <span class="studio-sticky-badge">Step 8 of ${totalSteps}</span>
+      <span class="studio-sticky-title">Production Export</span>
+      ${checkpointHtml}
+    `;
+    rightHtml = `
+      <button class="btn-ghost" onclick="goToStep(6)"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
       <button class="btn-primary" onclick="exportStudioJSON()">
         <i class="ti ti-download"></i> Export Project JSON
       </button>
@@ -3368,6 +3578,16 @@ function renderStickyBottomBar() {
       <div class="studio-sticky-actions">${rightHtml}</div>
     </div>
   `;
+}
+
+function getTimeAgo(isoStr) {
+  try {
+    const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (diff < 60) return 'Saved just now';
+    if (diff < 3600) return `Saved ${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `Saved ${Math.floor(diff/3600)}h ago`;
+    return `Saved ${Math.floor(diff/86400)}d ago`;
+  } catch { return ''; }
 }
 
 function renderSetupModal() {
@@ -3456,8 +3676,9 @@ function canNavigateToStep(i) {
   if (i === 2) return !!(S.studioScript && (S.studioScript.scenes?.length || Array.isArray(S.studioScript)));
   if (i === 3) return !!(S.studioPrompts && S.studioPrompts.length);
   if (i === 4) return !!(S.studioCharacters && S.studioCharacters.length && getUnassignedScenes().length === 0);
-  if (i === 5) return !!(S.studioClips && S.studioClips.length);
-  if (i === 6) return !!(S.studioClips && S.studioClips.length);
+  if (i === 5) return getAllStoryboardsGenerated();
+  if (i === 6) return !!(S.studioClips && S.studioClips.length && S.studioClips.some(c => c.status === 'done'));
+  if (i === 7) return !!(S.studioClips && S.studioClips.length && S.studioClips.some(c => c.status === 'done'));
   return false;
 }
 
@@ -3467,7 +3688,8 @@ function buildStudio() {
     { icon: 'ti-script',     label: 'Script' },
     { icon: 'ti-wand',       label: 'Prompts' },
     { icon: 'ti-user-check', label: 'Characters' },
-    { icon: 'ti-video',      label: 'Generate' },
+    { icon: 'ti-photo',      label: 'Storyboard' },
+    { icon: 'ti-video',      label: 'Video' },
     { icon: 'ti-layout-grid',label: 'Timeline' },
     { icon: 'ti-download',   label: 'Export' }
   ];
@@ -3901,7 +4123,144 @@ function buildStudio() {
   }
 
   // Step 4: Video Generation Progress
+  
+  // Step 4: Storyboard Generation & Review (NEW)
   if (S.studioStep === 4) {
+    const numScenes = S.studioPrompts?.length || S.studioScript?.scenes?.length || 0;
+    const readyCount = getStoryboardReadyCount();
+    const approvedCount = (S.studioStoryboard || []).filter(sb => sb?.approved).length;
+    const allGenerated = readyCount >= numScenes;
+
+    panelHtml = `
+      <!-- Storyboard Control Bar -->
+      <div class="card" style="margin-bottom:14px;border:1px solid rgba(168,85,247,0.35);background:linear-gradient(180deg, var(--surface-2), rgba(168,85,247,0.04))">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px">
+              <i class="ti ti-photo" style="color:#a855f7"></i> Storyboard Frame Generation
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+              Generate and review storyboard images for each scene before committing to video.
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${renderImageModelSelect(true)}
+            <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="generateAllStoryboards()" ${S.studioLoading ? 'disabled' : ''}>
+              <i class="ti ti-palette"></i> ${readyCount > 0 ? 'Re-generate All' : 'Generate All Storyboards'}
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:16px;padding-top:8px;border-top:1px solid var(--border);font-size:12px">
+          <span style="color:var(--text-muted)">
+            <i class="ti ti-photo"></i> ${readyCount}/${numScenes} generated
+          </span>
+          <span style="color:${approvedCount >= numScenes ? 'var(--text-success)' : 'var(--text-muted)'}">
+            <i class="ti ti-circle-check"></i> ${approvedCount}/${numScenes} approved
+          </span>
+          ${allGenerated ? `
+            <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--text-success);margin-left:auto" onclick="approveAllStoryboards()">
+              <i class="ti ti-checks"></i> Approve All
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- Storyboard Grid -->
+      <div class="studio-storyboard-grid">
+        ${Array.from({ length: numScenes }, (_, i) => {
+          const sb = S.studioStoryboard?.[i] || {};
+          const sc = S.studioScript?.scenes?.[i];
+          const p = S.studioPrompts?.[i];
+          const assignedChars = getSceneCharacters(sc);
+          const statusIcon = sb.status === 'done' ? 'ti-circle-check' : sb.status === 'error' ? 'ti-alert-circle' : sb.status === 'generating' ? 'ti-loader' : 'ti-clock';
+          const statusColor = sb.status === 'done' ? (sb.approved ? 'var(--text-success)' : '#a855f7') : sb.status === 'error' ? 'var(--text-danger)' : 'var(--text-muted)';
+
+          return `
+            <div class="storyboard-card ${sb.approved ? 'approved' : ''}" style="border-left:3px solid ${statusColor}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <i class="ti ${statusIcon} ${sb.status === 'generating' ? 'studio-spin' : ''}" style="color:${statusColor};font-size:16px"></i>
+                  <span style="font-weight:700;font-size:13px;color:var(--text-primary)">Scene ${i+1}</span>
+                  ${sb.approved ? '<span style="font-size:10px;background:rgba(34,197,94,0.15);color:var(--text-success);padding:1px 6px;border-radius:8px;font-weight:600">✓ Approved</span>' : ''}
+                </div>
+                <div style="display:flex;gap:4px">
+                  ${assignedChars.map(ac => `
+                    <img src="${resolveAssetUrl(ac.url)}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;border:1px solid var(--border)" title="${ac.name}" />
+                  `).join('')}
+                </div>
+              </div>
+
+              <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">
+                ${(p?.veoPrompt || sc?.description || '').substring(0, 150)}${(p?.veoPrompt || sc?.description || '').length > 150 ? '...' : ''}
+              </div>
+
+              ${sb.imageUrl ? `
+                <div style="position:relative;margin-bottom:8px">
+                  <img src="${resolveAssetUrl(sb.imageUrl)}"
+                       class="storyboard-frame-img"
+                       alt="Storyboard Scene ${i+1}"
+                       onclick="S.lightbox={open:true,url:'${resolveAssetUrl(sb.imageUrl)}',title:'Scene ${i+1} Storyboard'};render()" />
+                  ${sb.approved ? '<div class="storyboard-approved-overlay"><i class="ti ti-circle-check"></i></div>' : ''}
+                </div>
+              ` : sb.status === 'generating' ? `
+                <div class="storyboard-placeholder generating">
+                  <div class="pulse-dot"></div> Generating...
+                </div>
+              ` : `
+                <div class="storyboard-placeholder">
+                  <i class="ti ti-photo-off" style="font-size:24px;opacity:0.4"></i>
+                  <span>Not generated</span>
+                </div>
+              `}
+
+              ${sb.error ? `
+                <div style="font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;padding:4px 8px;margin-bottom:6px">
+                  <i class="ti ti-alert-circle"></i> ${sb.error}
+                </div>
+              ` : ''}
+
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="rerollStoryboardFrame(${i})" ${S.studioLoading ? 'disabled' : ''}>
+                  <i class="ti ti-rotate"></i> Re-roll
+                </button>
+                ${sb.status === 'done' && !sb.approved ? `
+                  <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--text-success)" onclick="approveStoryboardFrame(${i})">
+                    <i class="ti ti-circle-check"></i> Approve
+                  </button>
+                ` : ''}
+                ${sb.approved ? `
+                  <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--text-muted)" onclick="unapproveStoryboardFrame(${i})">
+                    <i class="ti ti-circle-x"></i> Unapprove
+                  </button>
+                ` : ''}
+                ${!sb.imageUrl && sb.status !== 'generating' ? `
+                  <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--brand)" onclick="generateStoryboardImage(${i})" ${S.studioLoading ? 'disabled' : ''}>
+                    <i class="ti ti-sparkles"></i> Generate
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
+        ${allGenerated ? `
+          <button class="btn-primary" onclick="goToStep(5)">
+            <i class="ti ti-video"></i> Proceed to Video Generation
+          </button>
+        ` : `
+          <button class="btn-primary" onclick="generateAllStoryboards()" ${S.studioLoading ? 'disabled' : ''}>
+            <i class="ti ti-palette"></i> Generate All Storyboards
+          </button>
+        `}
+        <button class="btn-ghost" onclick="goToStep(3)"><i class="ti ti-arrow-left"></i> Back to Characters</button>
+      </div>
+    `;
+  }
+
+if (S.studioStep === 5) {
     const activeEngine = (typeof VIDEO_MODELS !== 'undefined' ? VIDEO_MODELS.find(m => m.id === S.activeVideoEngine) : null) || { id: 'motion-video', name: 'Cinematic Motion Video', type: 'motion' };
     panelHtml = `
       <!-- Video Generation Engine & Character Continuity Bar -->
@@ -3947,6 +4306,15 @@ function buildStudio() {
           </button>
         </div>
       </div>
+      <!-- Per-scene & batch video controls -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="generateAllClips()" ${S.studioLoading ? 'disabled' : ''}>
+          <i class="ti ti-video"></i> Generate All Videos
+        </button>
+        <button class="btn-ghost" style="font-size:12px;padding:6px 14px" onclick="skipAllToStoryboard()">
+          <i class="ti ti-photo"></i> Use All Storyboards as Stills
+        </button>
+      </div>
       ${S.studioClips.map((clip, i) => {
         const statusIcon = clip.status === 'done' ? 'ti-circle-check' : clip.status === 'error' ? 'ti-alert-circle' : clip.status === 'generating' || clip.status === 'polling' ? 'ti-loader' : clip.status === 'pending-manual' ? 'ti-hand-click' : 'ti-clock';
         const statusColor = clip.status === 'done' ? 'var(--text-success)' : clip.status === 'error' ? 'var(--text-danger)' : clip.status === 'pending-manual' ? 'var(--text-warning)' : 'var(--text-muted)';
@@ -3988,21 +4356,33 @@ function buildStudio() {
               </div>
             ` : ''}
             <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+              ${S.studioStoryboard?.[i]?.imageUrl ? `
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:4px">
+                  <img src="${resolveAssetUrl(S.studioStoryboard[i].imageUrl)}" style="width:32px;height:20px;border-radius:3px;object-fit:cover" />
+                  <span>Storyboard ref</span>
+                </div>
+              ` : ''}
               <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="reRollSceneClip(${i})" ${S.studioLoading ? 'disabled' : ''} title="Re-generate this scene with character consistency lock">
                 <i class="ti ti-rotate"></i> Re-roll Scene
               </button>
               ${clip.status === 'error' ? `<button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--brand)" onclick="generateStudioClip(${i})"><i class="ti ti-refresh"></i> Retry</button>` : ''}
+              ${!clip.videoUrl && clip.status !== 'generating' && clip.status !== 'polling' ? `
+                <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:#a855f7" onclick="skipSceneToStoryboard(${i})" title="Use storyboard still with Ken Burns animation">
+                  <i class="ti ti-photo"></i> Use Still
+                </button>
+              ` : ''}
+              ${clip.isStill ? '<span style="font-size:10px;color:#a855f7;display:flex;align-items:center;gap:3px"><i class="ti ti-photo"></i> Still + Ken Burns</span>' : ''}
             </div>
           </div>`;
       }).join('')}
       <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn-primary" onclick="S.studioStep=5;render()"><i class="ti ti-layout-grid"></i> Go to Timeline</button>
+        <button class="btn-primary" onclick="S.studioStep=7;render()"><i class="ti ti-layout-grid"></i> Go to Timeline</button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy Prompts</button>
       </div>`;
   }
 
-  // Step 5: Timeline & Clips (Distinct Scene Thumbnails)
-  if (S.studioStep === 5) {
+  // Step 6: Timeline & Clips (Distinct Scene Thumbnails)
+  if (S.studioStep === 6) {
     panelHtml = renderStudioPlayer() + `
       <div class="section-label" style="margin-bottom:10px"><i class="ti ti-layout-grid"></i> Timeline & Scenes</div>
       <div class="studio-timeline">
@@ -4062,12 +4442,12 @@ function buildStudio() {
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn-primary" onclick="S.studioStep=6;render()"><i class="ti ti-download"></i> Go to Export</button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy All Prompts</button>
-        <button class="btn-ghost" onclick="S.studioStep=4;render()"><i class="ti ti-arrow-left"></i> Back</button>
+        <button class="btn-ghost" onclick="S.studioStep=5;render()"><i class="ti ti-arrow-left"></i> Back</button>
       </div>`;
   }
 
-  // Step 6: Export
-  if (S.studioStep === 6) {
+  // Step 7: Export
+  if (S.studioStep === 7) {
     panelHtml = `
       ${renderStudioPlayer()}
       <div class="studio-export-hero">
@@ -4095,7 +4475,7 @@ function buildStudio() {
         ` : ''}
         <button class="btn-ghost" onclick="exportStudioJSON()"><i class="ti ti-file-export"></i> Save Project JSON</button>
         <button class="btn-ghost" onclick="exportStudioScript()"><i class="ti ti-copy"></i> Copy Script</button>
-        <button class="btn-ghost" onclick="S.studioStep=5;render()"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
+        <button class="btn-ghost" onclick="S.studioStep=6;render()"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
       </div>`;
   }
 
