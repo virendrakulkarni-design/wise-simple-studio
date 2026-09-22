@@ -2407,8 +2407,8 @@ async function generateStoryboardImage(idx) {
 
   try {
     // Build scene-specific visual prompt
-    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 100) + '. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing from character sheet. Same character continuously in every scene';
-    const scenePrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). Cinematic scene composition, high quality, detailed background.`;
+    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 150);
+    const scenePrompt = `SUBJECT: ${charNames}, ${cleanDesc}. ACTION: ${sceneData?.title || ''}, ${promptData?.veoPrompt || sceneData?.description || ''}. Cinematic scene composition, high quality. (STRICT CONTINUITY: Must maintain identical character design, age, species, and clothing for ${charNames}).`;
     const negPrompt = 'character sheet, expression grid, palette, text, watermark, logo, collage, multi-panel, tiled, split screen, blurry, low quality, mutated, deformed';
 
     // Determine model
@@ -2562,8 +2562,8 @@ async function generateStudioClip(idx) {
       if (S.googleApiKey) {
         try {
           studioLog(`🎬 Scene ${idx + 1}: Calling Google Flow / Veo 2 video API...`);
-          const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 100) + '. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing from character sheet. Same character continuously in every scene';
-          const veoFullPrompt = `${sceneData?.title || ''}. ${promptData?.veoPrompt || sceneData?.description || ''}. Featuring ${charNames} (${cleanDesc}). 3D animated scene.`;
+          const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 150);
+          const veoFullPrompt = `SUBJECT: ${charNames}, ${cleanDesc}. ACTION: ${sceneData?.title || ''}, ${promptData?.veoPrompt || sceneData?.description || ''}. 3D animated scene. (STRICT CONTINUITY: Must maintain identical character design, age, species, and clothing for ${charNames}).`;
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning?key=${S.googleApiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2613,11 +2613,11 @@ async function generateStudioClip(idx) {
     // Extract clean character visual traits without confusing sheet/expression words
     const cleanChars = assignedChars.map(c => {
       const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, 'appearance').trim();
-      return `[CANONICAL CHARACTER REFERENCE: "${c.name.toUpperCase()}"]: ${d.substring(0, 80)}. STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing across all scenes. Never age up. Never substitute species.`;
+      return `${c.name}, ${d.substring(0, 150)}`;
     }).join(' and ');
 
-    // Explicit single scene shot prompt:
-    const fullScenePrompt = `Single cinematic animated scene shot: In ${sceneEnv}, ${sceneAction}. Featuring ${cleanChars}. Style: ${styleInfo.label}, 3D Pixar animated film still, full scene background, rich lighting, 4k render. (Rule: Single full scene shot depicting this story moment. Do NOT draw a character sheet, do NOT draw multiple panels, do NOT draw expression boxes).`;
+    // Explicit single scene shot prompt (Subject first for Flux attention):
+    const fullScenePrompt = `SUBJECT: ${cleanChars}. ACTION: Single cinematic animated scene shot, ${sceneEnv}, ${sceneAction}. Style: ${styleInfo.label}, 3D Pixar animated film still, full scene background, rich lighting, 4k render. (STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing for ${cleanChars} across all scenes. Single full scene shot depicting this story moment. Do NOT draw a character sheet or multiple panels).`;
     const visualPrompt = encodeURIComponent(fullScenePrompt.substring(0, 480));
 
     const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
@@ -3937,7 +3937,7 @@ function buildStudio() {
                 <i class="ti ti-prompt"></i> Character Visual Prompt (Edit or write your own):
               </label>
               <button class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--brand);font-weight:600" onclick="handleGenerateSamplePrompt()" title="Generate optimized prompt from story & scenes">
-                <i class="ti ti-sparkles"></i> Generate Sample Prompt from Story
+                <i class="ti ${sb.status === 'generating' ? 'ti-loader studio-spin' : 'ti-sparkles'}"></i> ${sb.status === 'generating' ? 'Generating...' : 'Generate'} Sample Prompt from Story
               </button>
             </div>
             <textarea class="input-field" style="width:100%;height:84px;font-size:12px;line-height:1.5;font-family:inherit;padding:8px 10px" placeholder="Write or edit prompt here (e.g. 3D Pixar character portrait of Toby the Tortoise...)" oninput="S.charPromptInput=this.value">${S.charPromptInput || ''}</textarea>
@@ -4118,7 +4118,7 @@ function buildStudio() {
 
         <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
           <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
-            Next: Generate Video Clips <i class="ti ti-arrow-right"></i>
+            Next: Storyboard <i class="ti ti-arrow-right"></i>
           </button>
           <button class="btn-ghost" onclick="S.studioStep=2;render()"><i class="ti ti-arrow-left"></i> Back to Prompts</button>
         </div>
@@ -4224,9 +4224,9 @@ function buildStudio() {
               ` : ''}
 
               <div style="display:flex;gap:4px;flex-wrap:wrap">
-                <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="rerollStoryboardFrame(${i})" ${S.studioLoading ? 'disabled' : ''}>
-                  <i class="ti ti-rotate"></i> Re-roll
-                </button>
+                ${sb.imageUrl || sb.status === 'generating' ? `<button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="rerollStoryboardFrame(${i})" ${sb.status === 'generating' || S.studioLoading ? 'disabled' : ''}>
+                  <i class="ti ${sb.status === 'generating' ? 'ti-loader studio-spin' : 'ti-rotate'}"></i> ${sb.status === 'generating' ? 'Generating...' : 'Re-roll'}
+                </button>` : ''}
                 ${sb.status === 'done' && !sb.approved ? `
                   <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--text-success)" onclick="approveStoryboardFrame(${i})">
                     <i class="ti ti-circle-check"></i> Approve
@@ -4237,8 +4237,8 @@ function buildStudio() {
                     <i class="ti ti-circle-x"></i> Unapprove
                   </button>
                 ` : ''}
-                ${!sb.imageUrl && sb.status !== 'generating' ? `
-                  <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--brand)" onclick="generateStoryboardImage(${i})" ${S.studioLoading ? 'disabled' : ''}>
+                ${!sb.imageUrl ? `
+                  <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--brand)" onclick="generateStoryboardImage(${i})" ${sb.status === 'generating' || S.studioLoading ? 'disabled' : ''}>
                     <i class="ti ti-sparkles"></i> Generate
                   </button>
                 ` : ''}
