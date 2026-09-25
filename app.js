@@ -2433,7 +2433,19 @@ async function generateStoryboardImage(idx) {
       model: imgModel === 'nanobanana' ? 'nano-banana' : 'flux'
     });
 
-    // Validate the image is not a character sheet
+    // Preload image so UI stays in loading state until image bytes actually arrive
+    if (imageUrl && !imageUrl.startsWith('data:')) {
+      try {
+        await new Promise((resolve) => {
+          const preImg = new Image();
+          const timer = setTimeout(() => resolve(false), 12000);
+          preImg.onload = () => { clearTimeout(timer); resolve(true); };
+          preImg.onerror = () => { clearTimeout(timer); resolve(false); };
+          preImg.src = imageUrl;
+        });
+      } catch (_) {}
+    }
+
     S.studioStoryboard[idx].status = 'done';
     S.studioStoryboard[idx].imageUrl = imageUrl;
     S.studioStoryboard[idx].error = null;
@@ -2462,10 +2474,10 @@ async function generateAllStoryboards() {
   S.studioStoryboard = Array.from({ length: numScenes }, (_, i) => ({
     sceneIndex: i,
     status: 'queued',
-    imageUrl: S.studioStoryboard?.[i]?.imageUrl || null,
+    imageUrl: null,
     prompt: S.studioPrompts?.[i]?.veoPrompt || S.studioScript?.scenes?.[i]?.description || '',
     error: null,
-    approved: S.studioStoryboard?.[i]?.approved || false
+    approved: false
   }));
   studioLog('🎨 Starting batch storyboard generation...');
   render();
@@ -3285,9 +3297,12 @@ function renderLightbox() {
   if (!S.lightbox.open) return '';
   return `
     <div class="modal-overlay" onclick="S.lightbox.open=false;render()">
-      <div style="max-width:90vw;max-height:90vh;position:relative">
-        <img src="${S.lightbox.url}" style="max-width:100%;max-height:85vh;border-radius:8px;display:block" />
-        <div style="color:#fff;text-align:center;margin-top:8px;font-weight:600">${S.lightbox.title}</div>
+      <div style="max-width:90vw;max-height:90vh;position:relative" onclick="event.stopPropagation()">
+        <img src="${S.lightbox.url}" style="max-width:100%;max-height:82vh;border-radius:8px;display:block;margin:0 auto;box-shadow:0 10px 40px rgba(0,0,0,0.85);object-fit:contain" />
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:10px">
+          <span style="color:#fff;font-weight:600;font-size:13px">${S.lightbox.title}</span>
+          <button class="btn-ghost" style="padding:4px 12px;font-size:11px;color:#fff;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:6px;cursor:pointer" onclick="S.lightbox.open=false;render()">&times; Close</button>
+        </div>
       </div>
     </div>`;
 }
@@ -4204,24 +4219,79 @@ function buildStudio() {
                 ${(p?.veoPrompt || sc?.description || '').substring(0, 150)}${(p?.veoPrompt || sc?.description || '').length > 150 ? '...' : ''}
               </div>
 
-              ${sb.imageUrl ? `
-                <div style="position:relative;margin-bottom:8px">
-                  <img src="${resolveAssetUrl(sb.imageUrl)}"
-                       class="storyboard-frame-img"
-                       alt="Storyboard Scene ${i+1}"
-                       onclick="S.lightbox={open:true,url:'${resolveAssetUrl(sb.imageUrl)}',title:'Scene ${i+1} Storyboard'};render()" />
-                  ${sb.approved ? '<div class="storyboard-approved-overlay"><i class="ti ti-circle-check"></i></div>' : ''}
-                </div>
-              ` : sb.status === 'generating' ? `
-                <div class="storyboard-placeholder generating">
-                  <div class="pulse-dot"></div> Generating...
-                </div>
-              ` : `
-                <div class="storyboard-placeholder">
-                  <i class="ti ti-photo-off" style="font-size:24px;opacity:0.4"></i>
-                  <span>Not generated</span>
-                </div>
-              `}
+              ${(() => {
+                const aspectStyle = S.studioAspect === '9:16'
+                  ? 'aspect-ratio: 9 / 14; max-height: 340px;'
+                  : (S.studioAspect === '1:1' ? 'aspect-ratio: 1 / 1; max-height: 280px;' : 'aspect-ratio: 16 / 9; max-height: 220px;');
+
+                if (sb.status === 'generating') {
+                  return `
+                    <div class="storyboard-img-container" style="${aspectStyle}">
+                      <div class="storyboard-loading-box">
+                        <div class="storyboard-loader-icon">
+                          <div class="storyboard-loader-spinner"></div>
+                          <i class="ti ti-photo" style="font-size:20px;color:var(--brand)"></i>
+                        </div>
+                        <div style="font-size:13px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px">
+                          <span class="pulse-dot"></span> Generating Storyboard...
+                        </div>
+                        <div style="font-size:11px;color:var(--text-secondary);max-width:240px;line-height:1.4">
+                          Rendering AI frame for Scene ${i+1}...
+                        </div>
+                        <div class="sb-shimmer-bar">
+                          <div class="sb-shimmer-progress"></div>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }
+
+                if (sb.status === 'queued') {
+                  return `
+                    <div class="storyboard-img-container" style="${aspectStyle}">
+                      <div class="storyboard-queued-box">
+                        <i class="ti ti-clock" style="font-size:24px;color:var(--text-muted);opacity:0.6"></i>
+                        <span style="font-size:12px;font-weight:600;color:var(--text-primary)">Queued for Generation</span>
+                        <span style="font-size:10px;color:var(--text-muted)">Waiting to generate...</span>
+                      </div>
+                    </div>
+                  `;
+                }
+
+                if (sb.imageUrl) {
+                  return `
+                    <div class="storyboard-img-container" style="${aspectStyle}">
+                      <div class="storyboard-loading-box" id="sb-loader-${i}" style="position:absolute;inset:0;z-index:2;display:flex">
+                        <div class="storyboard-loader-icon">
+                          <div class="storyboard-loader-spinner"></div>
+                          <i class="ti ti-photo" style="font-size:20px;color:var(--brand)"></i>
+                        </div>
+                        <div style="font-size:12px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:6px">
+                          <span class="pulse-dot"></span> Loading Visual...
+                        </div>
+                      </div>
+                      <img src="${resolveAssetUrl(sb.imageUrl)}"
+                           class="storyboard-frame-img"
+                           alt="Scene ${i+1} Storyboard"
+                           onload="const ldr=document.getElementById('sb-loader-${i}');if(ldr)ldr.style.display='none';this.style.opacity='1';"
+                           onerror="const ldr=document.getElementById('sb-loader-${i}');if(ldr){ldr.style.display='flex';ldr.innerHTML='<div style=\"color:#f87171;padding:12px;text-align:center\"><i class=\"ti ti-alert-triangle\" style=\"font-size:22px;display:block;margin-bottom:6px\"></i><div>Image load timeout</div><button class=\"btn-ghost\" style=\"margin-top:8px;font-size:11px;padding:3px 8px;color:var(--brand)\" onclick=\"rerollStoryboardFrame(${i})\"><i class=\"ti ti-refresh\"></i> Retry Frame</button></div>';}"
+                           onclick="openLightbox('${resolveAssetUrl(sb.imageUrl)}', 'Scene ${i+1} Storyboard')"
+                           style="opacity:0;transition:opacity 0.25s ease;" />
+                      ${sb.approved ? '<div class="storyboard-approved-overlay"><i class="ti ti-circle-check"></i></div>' : ''}
+                    </div>
+                  `;
+                }
+
+                return `
+                  <div class="storyboard-img-container" style="${aspectStyle}">
+                    <div class="storyboard-placeholder">
+                      <i class="ti ti-photo-off" style="font-size:28px;opacity:0.4"></i>
+                      <span style="font-weight:600;font-size:12px">Not generated</span>
+                      <span style="font-size:10px;color:var(--text-muted)">Click "Generate" below</span>
+                    </div>
+                  </div>
+                `;
+              })()}
 
               ${sb.error ? `
                 <div style="font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;padding:4px 8px;margin-bottom:6px">
@@ -4509,7 +4579,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.1</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.2</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
