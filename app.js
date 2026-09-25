@@ -2438,7 +2438,7 @@ async function generateStoryboardImage(idx) {
       try {
         await new Promise((resolve) => {
           const preImg = new Image();
-          const timer = setTimeout(() => resolve(false), 12000);
+          const timer = setTimeout(() => resolve(false), 25000);
           preImg.onload = () => { clearTimeout(timer); resolve(true); };
           preImg.onerror = () => { clearTimeout(timer); resolve(false); };
           preImg.src = imageUrl;
@@ -2521,6 +2521,35 @@ function unapproveStoryboardFrame(idx) {
 async function rerollStoryboardFrame(idx) {
   studioLog(`↺ Re-generateing storyboard frame ${idx + 1}...`);
   await generateStoryboardImage(idx);
+}
+
+function handleStoryboardImageLoad(idx, imgEl) {
+  const ldr = document.getElementById(`sb-loader-${idx}`);
+  if (ldr) ldr.style.display = 'none';
+  if (imgEl) {
+    imgEl.style.opacity = '1';
+    imgEl.style.display = 'block';
+  }
+}
+
+function handleStoryboardImageError(idx, imgEl) {
+  const ldr = document.getElementById(`sb-loader-${idx}`);
+  if (ldr) {
+    ldr.style.display = 'flex';
+    ldr.innerHTML = `
+      <div style="color:var(--text-secondary);padding:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px">
+        <i class="ti ti-photo-x" style="font-size:24px;color:#f87171"></i>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary)">Image load timeout</div>
+        <div style="font-size:10px;color:var(--text-muted);max-width:200px">AI server took longer than expected</div>
+        <button class="btn-ghost" style="margin-top:6px;font-size:11px;padding:3px 10px;color:var(--brand);border:1px solid rgba(99,102,241,0.3)" onclick="rerollStoryboardFrame(${idx})">
+          <i class="ti ti-refresh"></i> Retry Frame
+        </button>
+      </div>
+    `;
+  }
+  if (imgEl) {
+    imgEl.style.display = 'none';
+  }
 }
 
 function getStoryboardReadyCount() {
@@ -4221,8 +4250,8 @@ function buildStudio() {
 
               ${(() => {
                 const aspectStyle = S.studioAspect === '9:16'
-                  ? 'aspect-ratio: 9 / 14; max-height: 340px;'
-                  : (S.studioAspect === '1:1' ? 'aspect-ratio: 1 / 1; max-height: 280px;' : 'aspect-ratio: 16 / 9; max-height: 220px;');
+                  ? 'height: 280px;'
+                  : (S.studioAspect === '1:1' ? 'height: 240px;' : 'height: 200px;');
 
                 if (sb.status === 'generating') {
                   return `
@@ -4273,8 +4302,8 @@ function buildStudio() {
                       <img src="${resolveAssetUrl(sb.imageUrl)}"
                            class="storyboard-frame-img"
                            alt="Scene ${i+1} Storyboard"
-                           onload="const ldr=document.getElementById('sb-loader-${i}');if(ldr)ldr.style.display='none';this.style.opacity='1';"
-                           onerror="const ldr=document.getElementById('sb-loader-${i}');if(ldr){ldr.style.display='flex';ldr.innerHTML='<div style=\"color:#f87171;padding:12px;text-align:center\"><i class=\"ti ti-alert-triangle\" style=\"font-size:22px;display:block;margin-bottom:6px\"></i><div>Image load timeout</div><button class=\"btn-ghost\" style=\"margin-top:8px;font-size:11px;padding:3px 8px;color:var(--brand)\" onclick=\"rerollStoryboardFrame(${i})\"><i class=\"ti ti-refresh\"></i> Retry Frame</button></div>';}"
+                           onload="handleStoryboardImageLoad(${i}, this)"
+                           onerror="handleStoryboardImageError(${i}, this)"
                            onclick="openLightbox('${resolveAssetUrl(sb.imageUrl)}', 'Scene ${i+1} Storyboard')"
                            style="opacity:0;transition:opacity 0.25s ease;" />
                       ${sb.approved ? '<div class="storyboard-approved-overlay"><i class="ti ti-circle-check"></i></div>' : ''}
@@ -4579,7 +4608,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.2</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.3</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
