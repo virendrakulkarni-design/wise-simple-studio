@@ -2348,6 +2348,7 @@ async function autoGenerateAllStoryCharacters() {
 
 async function generateCharacterRef() {
   S.studioStep = 3;
+  S.qualityAlert = null;
   const storyChars = detectStoryCharacters();
   const first = storyChars[0] || {
     name: S.studioScript?.mainCharacter?.split(':')?.[0]?.trim() || (S.studioTopic || 'Protagonist').split(' ')[0] || 'Hero',
@@ -2360,6 +2361,7 @@ async function generateCharacterRef() {
 
   if (S.studioCharacters && S.studioCharacters.length) {
     render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     return;
   }
 
@@ -3839,7 +3841,7 @@ function buildStudio() {
           ${S.studioLoading ? '<span class="pulse-dot"></span> Expanding...' : '<i class="ti ti-arrow-right"></i> Expand to Prompts'}
         </button>
         <button class="btn-ghost" onclick="exportStudioScript()"><i class="ti ti-copy"></i> Copy Script</button>
-        <button class="btn-ghost" onclick="S.studioStep=0;render()"><i class="ti ti-arrow-left"></i> Back</button>
+        <button class="btn-ghost" onclick="goToStep(0)"><i class="ti ti-arrow-left"></i> Back</button>
       </div>`;
   }
 
@@ -3860,15 +3862,14 @@ function buildStudio() {
       `).join('')}
 
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-        <button class="btn-primary" onclick="S.studioStep=3;render()" style="background:linear-gradient(135deg,#4285f4,#34a853)">
+        <button class="btn-primary" onclick="goToStep(3)" style="background:linear-gradient(135deg,#4285f4,#34a853)">
           <i class="ti ti-user-check"></i> Next: Assign Characters (Mandatory)
         </button>
-        <button class="btn-ghost" style="font-size:12px;color:#f87171;border-color:rgba(239,68,68,0.4)" onclick="testLowQualityRejection()" title="Simulate quality gate rejection"><i class="ti ti-shield-alert"></i> Test Quality Gate</button>
-            <button class="btn-ghost" onclick="generateCharacterRef()" ${S.studioLoading ? 'disabled' : ''}>
+        <button class="btn-ghost" onclick="generateCharacterRef()" ${S.studioLoading ? 'disabled' : ''}>
           <i class="ti ti-wand"></i> AI Character Ref
         </button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy All Prompts</button>
-        <button class="btn-ghost" onclick="S.studioStep=1;render()"><i class="ti ti-arrow-left"></i> Back</button>
+        <button class="btn-ghost" onclick="goToStep(1)"><i class="ti ti-arrow-left"></i> Back</button>
       </div>`;
   }
 
@@ -3942,7 +3943,7 @@ function buildStudio() {
                 <i class="ti ti-prompt"></i> Character Visual Prompt (Edit or write your own):
               </label>
               <button class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--brand);font-weight:600" onclick="handleGenerateSamplePrompt()" title="Generate optimized prompt from story & scenes">
-                <i class="ti ${sb.status === 'generating' ? 'ti-loader studio-spin' : 'ti-sparkles'}"></i> ${sb.status === 'generating' ? 'Generating...' : 'Generate'} Sample Prompt from Story
+                <i class="ti ti-sparkles"></i> Generate Sample Prompt from Story
               </button>
             </div>
             <textarea class="input-field" style="width:100%;height:84px;font-size:12px;line-height:1.5;font-family:inherit;padding:8px 10px" placeholder="Write or edit prompt here (e.g. 3D Pixar character portrait of Toby the Tortoise...)" oninput="S.charPromptInput=this.value">${S.charPromptInput || ''}</textarea>
@@ -4049,7 +4050,7 @@ function buildStudio() {
             <button class="btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--brand)" onclick="autoMatchScriptCharacters()" title="Auto-detect characters mentioned in scenes and assign them">
               <i class="ti ti-wand"></i> Auto-Match All
             </button>
-            <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
+            <button class="btn-primary" onclick="goToStep(4)" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
               Next: Storyboard <i class="ti ti-arrow-right"></i>
             </button>
           </div>
@@ -4122,10 +4123,10 @@ function buildStudio() {
         </div>
 
         <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="S.studioStep=4;render()" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
+          <button class="btn-primary" onclick="goToStep(4)" ${!isAllAssigned ? 'disabled' : ''} style="${!isAllAssigned ? 'opacity:0.5;cursor:not-allowed;' : 'background:linear-gradient(135deg,#4285f4,#34a853);'}">
             Next: Storyboard <i class="ti ti-arrow-right"></i>
           </button>
-          <button class="btn-ghost" onclick="S.studioStep=2;render()"><i class="ti ti-arrow-left"></i> Back to Prompts</button>
+          <button class="btn-ghost" onclick="goToStep(2)"><i class="ti ti-arrow-left"></i> Back to Prompts</button>
         </div>
       </div>
     `;
@@ -4384,7 +4385,7 @@ if (S.studioStep === 5) {
           </div>`;
       }).join('')}
       <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn-primary" onclick="S.studioStep=7;render()"><i class="ti ti-layout-grid"></i> Go to Timeline</button>
+        <button class="btn-primary" onclick="goToStep(6)"><i class="ti ti-layout-grid"></i> Go to Timeline</button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy Prompts</button>
       </div>`;
   }
@@ -4448,9 +4449,9 @@ if (S.studioStep === 5) {
         }).join('')}
       </div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-        <button class="btn-primary" onclick="S.studioStep=6;render()"><i class="ti ti-download"></i> Go to Export</button>
+        <button class="btn-primary" onclick="goToStep(7)"><i class="ti ti-download"></i> Go to Export</button>
         <button class="btn-ghost" onclick="exportStudioPrompts()"><i class="ti ti-clipboard"></i> Copy All Prompts</button>
-        <button class="btn-ghost" onclick="S.studioStep=5;render()"><i class="ti ti-arrow-left"></i> Back</button>
+        <button class="btn-ghost" onclick="goToStep(5)"><i class="ti ti-arrow-left"></i> Back</button>
       </div>`;
   }
 
@@ -4483,7 +4484,7 @@ if (S.studioStep === 5) {
         ` : ''}
         <button class="btn-ghost" onclick="exportStudioJSON()"><i class="ti ti-file-export"></i> Save Project JSON</button>
         <button class="btn-ghost" onclick="exportStudioScript()"><i class="ti ti-copy"></i> Copy Script</button>
-        <button class="btn-ghost" onclick="S.studioStep=6;render()"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
+        <button class="btn-ghost" onclick="goToStep(6)"><i class="ti ti-arrow-left"></i> Back to Timeline</button>
       </div>`;
   }
 
