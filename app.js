@@ -4509,7 +4509,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name">Wise Simple Studio</div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.1</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
