@@ -1225,8 +1225,18 @@ function normalizeStudioCharacters() {
   // Ensure every scene has assignedCharacterIds array initialized
   if (S.studioScript && Array.isArray(S.studioScript.scenes)) {
     S.studioScript.scenes.forEach(sc => {
-      if (!Array.isArray(sc.assignedCharacterIds)) {
-        sc.assignedCharacterIds = sc.assignedCharacterId ? [sc.assignedCharacterId] : [];
+      if (!Array.isArray(sc.assignedCharacterIds) || sc.assignedCharacterIds.length <= 1) {
+        const sceneText = `${sc.title || ''} ${sc.description || ''} ${sc.narration || ''} ${sc.dialogue || ''} ${(sc.characters || []).join(' ')}`.toLowerCase();
+        const matched = (S.studioCharacters || []).filter(ch => {
+          const chName = (ch.name || '').toLowerCase();
+          const firstName = chName.split(' ')[0];
+          return (firstName.length > 2 && sceneText.includes(firstName)) || (chName.length > 2 && sceneText.includes(chName));
+        });
+        if (matched.length > 1) {
+          sc.assignedCharacterIds = matched.map(c => c.id);
+        } else if (!Array.isArray(sc.assignedCharacterIds)) {
+          sc.assignedCharacterIds = sc.assignedCharacterId ? [sc.assignedCharacterId] : [];
+        }
       }
       sc.assignedCharacterId = sc.assignedCharacterIds[0] || null;
     });
@@ -1713,10 +1723,73 @@ function getCharacterSeed(char) {
 function getCharacterReferenceUrl(char) {
   if (!char) return '';
   if (char.sourceUrl && typeof char.sourceUrl === 'string' && char.sourceUrl.startsWith('http')) return char.sourceUrl;
-  if (char.url && typeof char.url === 'string' && char.url.startsWith('http')) return char.url;
-  const prompt = char.prompt || `Character portrait of ${char.name}, ${char.description || ''}`;
-  const seed = char.seed || getCharacterSeed(char);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 300))}?width=768&height=768&seed=${seed}&nologo=true`;
+  if (char.url && typeof char.url === 'string') {
+    if (char.url.startsWith('http://') || char.url.startsWith('https://')) return char.url;
+    const cleanPath = char.url.replace(/^(\.\/|\/)+/, '');
+    if (cleanPath.startsWith('assets/')) return 'https://virendrakulkarni-design.github.io/wise-simple-studio/' + cleanPath;
+  }
+  return '';
+}
+
+function getCharacterVisualTraits(c) {
+  if (!c) return '';
+  const desc = (c.description || '').replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '').trim();
+  const promptPart = (c.prompt || '').replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '').replace(/centered\s+character\s+portrait|clean\s+studio\s+background|8k\s+render|octane\s+render|volumetric\s+soft\s+shadows/gi, '').trim();
+  const raw = [desc, promptPart].filter(Boolean).join(', ');
+  const lower = (c.name + ' ' + raw).toLowerCase();
+  if (lower.includes('toby') || lower.includes('tortoise')) {
+    return 'cute stylized 3D green tortoise with glossy jade-green dome shell with glowing amber-orange hexagonal patterns, bright orange neck bandana scarf, big emerald-green eyes, warm friendly smile';
+  }
+  if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit')) {
+    return 'tall athletic 3D hare rabbit with honey-golden fur, long floppy ears pink inside, wearing bright red athletic racing tank jersey with white number 1, white wristbands, sneakers, cocky toothy smirk';
+  }
+  return raw.substring(0, 180) || c.name;
+}
+
+function buildSceneVisualPrompt(idx, assignedChars) {
+  const promptData = S.studioPrompts?.[idx];
+  const sceneData = S.studioScript?.scenes?.[idx];
+  const sceneChars = (assignedChars && assignedChars.length > 0) ? assignedChars : (S.studioCharacters?.length ? [S.studioCharacters[0]] : []);
+  const isMultiChar = sceneChars.length > 1;
+
+  const stylePrefix = S.studioStyle === 'anime'
+    ? 'Studio Ghibli anime movie still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, masterpiece'
+    : (S.studioStyle === 'claymation'
+      ? 'Aardman claymation animation film still, stop-motion crafted clay character, warm studio lighting'
+      : (S.studioStyle === 'comic'
+        ? 'Marvel graphic novel film still, vibrant dynamic comic illustration, detailed ink and cel shading'
+        : (S.studioStyle === 'realistic'
+          ? 'Cinematic movie still, photorealistic, natural cinematic lighting, 8k render'
+          : '3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k Pixar render')));
+
+  const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
+  const cleanAction = rawAction
+    .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
+    .replace(/^Scene\s+\d+:\s*/i, '')
+    .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let prompt = '';
+  let negPrompt = 'photorealistic, live action, real animal, wildlife photography, national geographic, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
+  let refImage = '';
+
+  if (isMultiChar) {
+    const c1 = sceneChars[0];
+    const c2 = sceneChars[1];
+    const traits1 = getCharacterVisualTraits(c1);
+    const traits2 = getCharacterVisualTraits(c2);
+    prompt = `${stylePrefix}. Two distinct characters together in the same scene: ${c1.name} and ${c2.name}. On one side: ${c1.name} (${traits1}). On the other side: ${c2.name} (${traits2}). Interaction & story action: ${cleanAction.substring(0, 220)}. Both characters visible side-by-side in full view together in frame, wide cinematic composition, detailed 3D Pixar render, exact character designs matching character sheets.`;
+    negPrompt += ', single character only, solo, lonely, alone, missing second character, one character only, duplicate characters';
+    refImage = '';
+  } else {
+    const c = sceneChars[0];
+    const traits = getCharacterVisualTraits(c);
+    prompt = `${stylePrefix}. Main character in scene: ${c.name} (${traits}). Story Action: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still, identical character design to character sheet.`;
+    refImage = getCharacterReferenceUrl(c);
+  }
+
+  return { sceneChars, prompt, negPrompt, refImage };
 }
 
 // ponytail: deleted uncalled buildSceneCharacterPrompt (YAGNI)
@@ -2398,19 +2471,7 @@ async function generateStoryboardImage(idx) {
     return;
   }
 
-  // 1. Identify which assigned characters actually appear in this scene
-  const sceneText = `${sceneData?.title || ''} ${promptData?.veoPrompt || ''} ${sceneData?.description || ''} ${sceneData?.narration || ''} ${promptData?.character || ''}`.toLowerCase();
-  
-  let sceneChars = assignedChars.filter(c => {
-    const name = (c.name || '').toLowerCase();
-    const firstName = name.split(' ')[0];
-    return (firstName.length > 2 && sceneText.includes(firstName)) || (name.length > 2 && sceneText.includes(name));
-  });
-
-  if (!sceneChars.length) {
-    sceneChars = [assignedChars[0]];
-  }
-
+  const { sceneChars, prompt: scenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars);
   const primaryChar = sceneChars[0];
   const charNames = sceneChars.map(c => c.name).join(' & ');
 
@@ -2430,52 +2491,10 @@ async function generateStoryboardImage(idx) {
   render();
 
   try {
-    // 2. Extract clean character visual traits from the Character Sheet
-    const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
-    const charVisuals = sceneChars.map(c => {
-      const descPart = (c.description || '').replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '').trim();
-      const promptPart = (c.prompt || '')
-        .replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '')
-        .replace(/centered\s+character\s+portrait|clean\s+studio\s+background|8k\s+render|octane\s+render|volumetric\s+soft\s+shadows/gi, '')
-        .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette/gi, '')
-        .trim();
-      const combinedTraits = [descPart, promptPart].filter(Boolean).join(', ').substring(0, 200);
-      const styleCue = is3dKids
-        ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes and friendly smile, exact same character design as character sheet'
-        : 'consistent character design matching reference sheet';
-      return `Character: ${c.name} (${styleCue}, visual appearance: ${combinedTraits})`;
-    }).join(' and ');
-
-    // 3. Clean scene action & setting without repetitive headers
-    const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
-    const cleanAction = rawAction
-      .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
-      .replace(/^Scene\s+\d+:\s*/i, '')
-      .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    // 4. Style anchor (3D Disney/Pixar animated film look)
-    const stylePrefix = S.studioStyle === 'anime'
-      ? 'Studio Ghibli anime movie still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, masterpiece'
-      : (S.studioStyle === 'claymation'
-        ? 'Aardman claymation animation film still, stop-motion crafted clay character, warm studio lighting'
-        : (S.studioStyle === 'comic'
-          ? 'Marvel graphic novel film still, vibrant dynamic comic illustration, detailed ink and cel shading'
-          : (S.studioStyle === 'realistic'
-            ? 'Cinematic movie still, photorealistic, natural cinematic lighting, 8k render'
-            : '3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k Pixar render')));
-
-    // 5. Final cinematic prompt honoring character sheet continuity
-    const scenePrompt = `${stylePrefix}. Main Character: ${charVisuals}. Story Action: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still, identical character design to character sheet.`;
-    const negPrompt = 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
-
-    // Determine model
     const imgModelObj = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
     const modelParam = imgModelObj?.param || S.activeImageModel || 'flux';
     let imageUrl = null;
 
-    const charRefUrl = getCharacterReferenceUrl(primaryChar);
     const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
@@ -2485,19 +2504,23 @@ async function generateStoryboardImage(idx) {
       seed: seed,
       negative: negPrompt,
       model: modelParam,
-      image: charRefUrl
+      image: refImage
     });
 
     // Preload image so UI stays in loading state until image bytes actually arrive
     if (imageUrl && !imageUrl.startsWith('data:')) {
       try {
-        await new Promise((resolve) => {
+        const loaded = await new Promise((resolve) => {
           const preImg = new Image();
-          const timer = setTimeout(() => resolve(false), 25000);
+          const timer = setTimeout(() => resolve(false), 15000);
           preImg.onload = () => { clearTimeout(timer); resolve(true); };
           preImg.onerror = () => { clearTimeout(timer); resolve(false); };
           preImg.src = imageUrl;
         });
+        if (!loaded) {
+          const fallbackUrl = imageUrl.replace(/model=[^&]+/, 'model=z-image-turbo');
+          if (fallbackUrl !== imageUrl) imageUrl = fallbackUrl;
+        }
       } catch (_) {}
     }
 
@@ -2712,38 +2735,9 @@ async function generateStudioClip(idx) {
       if (imgModel?.param) modelParam = (imgModel.param === 'nano-banana') ? 'flux' : imgModel.param;
     }
 
-    // 1. Identify which assigned characters actually appear in this scene
-    const sceneText = `${sceneData?.title || ''} ${promptData?.veoPrompt || ''} ${sceneData?.description || ''} ${sceneData?.narration || ''} ${promptData?.character || ''}`.toLowerCase();
-    let sceneChars = assignedChars.filter(c => {
-      const name = (c.name || '').toLowerCase();
-      const firstName = name.split(' ')[0];
-      return (firstName.length > 2 && sceneText.includes(firstName)) || (name.length > 2 && sceneText.includes(name));
-    });
-    if (!sceneChars.length) sceneChars = [assignedChars[0]];
-
+    const { sceneChars, prompt: fullScenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars);
     const primaryChar = sceneChars[0];
     const charNames = sceneChars.map(c => c.name).join(' & ');
-
-    // Extract clean character visual traits from the Character Sheet
-    const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
-    const cleanChars = sceneChars.map(c => {
-      const descPart = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, '').trim();
-      const promptPart = (c.prompt || '').replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '').trim();
-      const combinedTraits = [descPart, promptPart].filter(Boolean).join(', ').substring(0, 180);
-      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes, exact same design as character sheet' : 'consistent character design';
-      return `${c.name} (${styleCue}, ${combinedTraits})`;
-    }).join(' and ');
-
-    const cleanAction = (promptData?.veoPrompt || sceneData?.description || sceneData?.title || '')
-      .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
-      .replace(/^Scene\s+\d+:\s*/i, '')
-      .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const fullScenePrompt = `3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k render. Character: ${cleanChars}. Scene: ${cleanAction.substring(0, 220)}. Joyful, expressive, cinematic wide composition, detailed animated movie still, identical character design to character sheet.`;
-
-    const charRefUrl = getCharacterReferenceUrl(primaryChar);
     const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
@@ -2755,8 +2749,8 @@ async function generateStudioClip(idx) {
         aspect: S.studioAspect,
         seed,
         model: modelParam,
-        negative: 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet',
-        image: charRefUrl
+        negative: negPrompt,
+        image: refImage
       });
     }
 
@@ -4687,7 +4681,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.1</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
