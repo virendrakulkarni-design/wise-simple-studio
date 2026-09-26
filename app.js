@@ -113,11 +113,11 @@ function renderModelSelect() {
 
 const IMAGE_MODELS = [
   {
-    id: 'nano-banana',
-    label: 'Flux.1 Schnell (Recommended / Pixar Quality)',
+    id: 'flux',
+    label: 'Flux.1 Schnell (Recommended / Pixar 3D Quality)',
     shortLabel: 'Flux.1 (Recommended)',
     badge: 'Free / SOTA',
-    desc: 'State-of-the-art visual model tuned for character consistency and Pixar-quality scene generation.',
+    desc: 'Black Forest Labs 12B distilled transformer. Unmatched character detail, vibrant Disney/Pixar 3D animation, and prompt following.',
     engine: 'pollinations',
     param: 'flux'
   },
@@ -126,63 +126,45 @@ const IMAGE_MODELS = [
     label: 'Google Flow / Imagen 3 (Google AI Studio)',
     shortLabel: 'Google Flow (Imagen 3)',
     badge: 'Google AI / Key',
-    desc: 'Google DeepMind flagship Imagen 3 creative flow model (Uses your Google AI Studio API Key from Setup).',
+    desc: 'Google DeepMind flagship Imagen 3 creative model. Exceptional photorealism and studio cinematography (Requires Google AI Studio Key).',
     engine: 'google',
     param: 'imagen-3.0-generate-002'
   },
   {
-    id: 'flux',
-    label: 'Flux.1 Schnell (Black Forest Labs - Free)',
-    shortLabel: 'Flux.1 Schnell',
-    badge: 'Free / SOTA Quality',
-    desc: 'State-of-the-art open visual flow model. Exceptional character detail, prompt following & photorealism.',
+    id: 'gpt-image',
+    label: 'GPT Image Mini (OpenAI / Expressive Characters)',
+    shortLabel: 'GPT Image (OpenAI)',
+    badge: 'Free / OpenAI',
+    desc: 'OpenAI multi-modal visual synthesis model. Highly expressive cartoon and character facial animation.',
     engine: 'pollinations',
-    param: 'flux'
+    param: 'gpt-image'
   },
   {
-    id: 'turbo',
-    label: 'SDXL Turbo (Stability AI - Free / Instant)',
-    shortLabel: 'SDXL Turbo',
+    id: 'z-image-turbo',
+    label: 'Z-Image Turbo (Alibaba Tongyi / Instant 1s)',
+    shortLabel: 'Z-Image Turbo',
     badge: 'Free / 1-sec',
-    desc: 'Ultra-fast 1-step diffusion model. Generates characters and storyboards in ~1 second.',
+    desc: 'High-speed distilled diffusion model. Renders storyboard frames in ~1-2 seconds.',
     engine: 'pollinations',
-    param: 'turbo'
+    param: 'z-image-turbo'
   },
   {
-    id: 'flux-3d',
-    label: 'Flux 3D Disney/Pixar (Free)',
-    shortLabel: 'Flux 3D Pixar',
-    badge: 'Free / 3D Animation',
-    desc: 'Optimized for 3D CGI animation, Pixar/Disney character models, and vibrant cartoon sets.',
+    id: 'nova-canvas',
+    label: 'Amazon Nova Canvas (Cinematic Studio)',
+    shortLabel: 'Nova Canvas',
+    badge: 'Free / Amazon',
+    desc: 'Amazon flagship visual synthesis engine tuned for cinematic scene composition and lighting.',
     engine: 'pollinations',
-    param: 'flux-3d'
+    param: 'nova-canvas'
   },
   {
-    id: 'flux-realism',
-    label: 'Flux Realism (Free)',
-    shortLabel: 'Flux Realism',
-    badge: 'Free / Photoreal',
-    desc: 'Cinematic live action, photorealistic skin textures, dramatic shadows, and natural bokeh.',
+    id: 'dreamshaper',
+    label: 'DreamShaper 8 (Lykon / Anime & Concept Art)',
+    shortLabel: 'DreamShaper',
+    badge: 'Free / Stylized',
+    desc: 'Versatile stylized model optimized for hand-drawn anime, fantasy landscapes, and concept illustrations.',
     engine: 'pollinations',
-    param: 'flux-realism'
-  },
-  {
-    id: 'flux-anime',
-    label: 'Flux Anime & Ghibli (Free)',
-    shortLabel: 'Flux Anime',
-    badge: 'Free / Anime',
-    desc: 'Hand-drawn anime aesthetic, Studio Ghibli style landscapes, and manga concept art.',
-    engine: 'pollinations',
-    param: 'flux-anime'
-  },
-  {
-    id: 'sana',
-    label: 'SANA 16K (NVIDIA - Free)',
-    shortLabel: 'SANA (NVIDIA)',
-    badge: 'Free / NVIDIA',
-    desc: 'High-resolution linear-attention synthesis designed by NVIDIA.',
-    engine: 'pollinations',
-    param: 'sana'
+    param: 'dreamshaper'
   }
 ];
 
@@ -217,22 +199,23 @@ function setImageModel(modelId) {
 }
 
 function renderImageModelSelect(compact = false) {
+  const currentModelId = (IMAGE_MODELS.find(m => m.id === S.activeImageModel) || IMAGE_MODELS[0]).id;
   return `
     <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
       <span style="font-size:11px;font-weight:600;color:var(--text-muted);display:inline-flex;align-items:center;gap:4px">
         <i class="ti ti-photo" style="color:var(--brand)"></i> Visual:
       </span>
       <select class="select-field" title="Visual Image Model for Characters & Storyboards" onchange="setImageModel(this.value)" style="font-size:12px;padding:${compact ? '4px 8px' : '5px 10px'};background:var(--surface-2);border-color:var(--border-strong)">
-        <optgroup label="✨ Popular & Free Models (No Key Needed)">
+        <optgroup label="✨ Verified Free Models (No Key Needed)">
           ${IMAGE_MODELS.filter(m => m.engine === 'pollinations').map(m => `
-            <option value="${m.id}" ${m.id === S.activeImageModel ? 'selected' : ''}>
+            <option value="${m.id}" ${m.id === currentModelId ? 'selected' : ''}>
               ${compact ? m.shortLabel : m.label}
             </option>
           `).join('')}
         </optgroup>
         <optgroup label="⚡ Google Visual Models (Requires Google Key)">
           ${IMAGE_MODELS.filter(m => m.engine === 'google').map(m => `
-            <option value="${m.id}" ${m.id === S.activeImageModel ? 'selected' : ''}>
+            <option value="${m.id}" ${m.id === currentModelId ? 'selected' : ''}>
               ${compact ? m.shortLabel : m.label} ${!S.googleApiKey ? '(Key Needed)' : '✓'}
             </option>
           `).join('')}
@@ -2227,7 +2210,15 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
   const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
   const s = seed || Math.floor(Math.random() * 900000) + 100000;
   const neg = negative ? `&negative=${encodeURIComponent(negative)}` : '';
-  const cleanModel = (model === 'nano-banana' || !model) ? 'flux' : model;
+  const modelAliases = {
+    'nano-banana': 'flux',
+    'flux-3d': 'flux',
+    'flux-realism': 'flux',
+    'flux-anime': 'dreamshaper',
+    'turbo': 'z-image-turbo',
+    'sana': 'dreamshaper'
+  };
+  const cleanModel = modelAliases[model] || model || 'flux';
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 950))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}`;
 }
 
@@ -2459,7 +2450,8 @@ async function generateStoryboardImage(idx) {
     const negPrompt = 'character sheet, model sheet, expression grid, turnaround, multiple views, multi-panel, split screen, dark horror, sinister, green mutant, deformed, ugly, distorted, low quality, blurry, text, watermark, logo';
 
     // Determine model
-    const imgModel = S.activeImageModel || 'flux';
+    const imgModelObj = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
+    const modelParam = imgModelObj?.param || S.activeImageModel || 'flux';
     let imageUrl = null;
 
     const charBaseSeed = getCharacterSeed(primaryChar);
@@ -2470,7 +2462,7 @@ async function generateStoryboardImage(idx) {
       aspect: S.studioAspect,
       seed: seed,
       negative: negPrompt,
-      model: (imgModel === 'nanobanana' || imgModel === 'nano-banana') ? 'flux' : imgModel
+      model: modelParam
     });
 
     // Preload image so UI stays in loading state until image bytes actually arrive
@@ -4660,7 +4652,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.4</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.5</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
