@@ -1710,6 +1710,15 @@ function getCharacterSeed(char) {
   return (h % 800000) + 100000;
 }
 
+function getCharacterReferenceUrl(char) {
+  if (!char) return '';
+  if (char.sourceUrl && typeof char.sourceUrl === 'string' && char.sourceUrl.startsWith('http')) return char.sourceUrl;
+  if (char.url && typeof char.url === 'string' && char.url.startsWith('http')) return char.url;
+  const prompt = char.prompt || `Character portrait of ${char.name}, ${char.description || ''}`;
+  const seed = char.seed || getCharacterSeed(char);
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 300))}?width=768&height=768&seed=${seed}&nologo=true`;
+}
+
 // ponytail: deleted uncalled buildSceneCharacterPrompt (YAGNI)
 function reRollSceneClip(idx) {
   studioLog(`↺ Re-generateing Scene ${idx + 1} with character consistency lock...`);
@@ -2180,8 +2189,8 @@ function generateLocalCharacterAvatar(name, role) {
   }
 }
 
-// ponytail: unified image generator covering Google Imagen 3 and Pollinations AI
-async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negative = '', width, height }) {
+// ponytail: unified image generator covering Google Imagen 3 and Pollinations AI with reference image guidance
+async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negative = '', width, height, image = '' }) {
   if ((S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen') && S.googleApiKey) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`, {
@@ -2210,16 +2219,17 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
   const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
   const s = seed || Math.floor(Math.random() * 900000) + 100000;
   const neg = negative ? `&negative=${encodeURIComponent(negative)}` : '';
+  const imgParam = (image && typeof image === 'string' && image.startsWith('http')) ? `&image=${encodeURIComponent(image)}` : '';
   const modelAliases = {
     'nano-banana': 'flux',
     'flux-3d': 'flux',
     'flux-realism': 'flux',
     'flux-anime': 'dreamshaper',
     'turbo': 'z-image-turbo',
-    'sana': 'dreamshaper'
+    'sana': 'sana'
   };
   const cleanModel = modelAliases[model] || model || 'flux';
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 950))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}`;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 950))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}${imgParam}`;
 }
 
 async function generateCharacterFromPrompt(customPrompt, customName, customDesc) {
@@ -2243,6 +2253,7 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
     // ponytail: unified fetchImage replaces 35 lines of duplicate Imagen/Pollinations branching
     const modelParam = currentImgModel.engine === 'pollinations' ? currentImgModel.param : 'flux';
     finalUrl = await fetchImage({ prompt: cleanPrompt, aspect: '1:1', seed, model: modelParam });
+    const rawSourceUrl = finalUrl;
 
     // 3. Attempt quick preload to base64 Data URL (max 4s timeout, falls back to direct URL)
     try {
@@ -2278,6 +2289,8 @@ async function generateCharacterFromPrompt(customPrompt, customName, customDesc)
       id: existingIdx !== -1 ? S.studioCharacters[existingIdx].id : charId,
       name: name,
       url: finalUrl,
+      sourceUrl: rawSourceUrl,
+      seed: seed,
       description: desc || prompt.substring(0, 120),
       prompt: prompt
     };
@@ -2420,13 +2433,17 @@ async function generateStoryboardImage(idx) {
     // 2. Extract clean character visual traits from the Character Sheet
     const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
     const charVisuals = sceneChars.map(c => {
-      const rawDesc = c.description || c.prompt || c.name;
-      const clean = rawDesc
-        .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '')
-        .replace(/\s+/g, ' ')
+      const descPart = (c.description || '').replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '').trim();
+      const promptPart = (c.prompt || '')
+        .replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '')
+        .replace(/centered\s+character\s+portrait|clean\s+studio\s+background|8k\s+render|octane\s+render|volumetric\s+soft\s+shadows/gi, '')
+        .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette/gi, '')
         .trim();
-      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes and friendly smile' : 'consistent character design';
-      return `${c.name} (${styleCue}, ${clean.substring(0, 160)})`;
+      const combinedTraits = [descPart, promptPart].filter(Boolean).join(', ').substring(0, 200);
+      const styleCue = is3dKids
+        ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes and friendly smile, exact same character design as character sheet'
+        : 'consistent character design matching reference sheet';
+      return `Character: ${c.name} (${styleCue}, visual appearance: ${combinedTraits})`;
     }).join(' and ');
 
     // 3. Clean scene action & setting without repetitive headers
@@ -2450,7 +2467,7 @@ async function generateStoryboardImage(idx) {
             : '3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k Pixar render')));
 
     // 5. Final cinematic prompt honoring character sheet continuity
-    const scenePrompt = `${stylePrefix}. Character: ${charVisuals}. Story Scene: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still.`;
+    const scenePrompt = `${stylePrefix}. Main Character: ${charVisuals}. Story Action: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still, identical character design to character sheet.`;
     const negPrompt = 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
 
     // Determine model
@@ -2458,7 +2475,8 @@ async function generateStoryboardImage(idx) {
     const modelParam = imgModelObj?.param || S.activeImageModel || 'flux';
     let imageUrl = null;
 
-    const charBaseSeed = getCharacterSeed(primaryChar);
+    const charRefUrl = getCharacterReferenceUrl(primaryChar);
+    const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
     imageUrl = await fetchImage({
@@ -2466,7 +2484,8 @@ async function generateStoryboardImage(idx) {
       aspect: S.studioAspect,
       seed: seed,
       negative: negPrompt,
-      model: modelParam
+      model: modelParam,
+      image: charRefUrl
     });
 
     // Preload image so UI stays in loading state until image bytes actually arrive
@@ -2708,9 +2727,11 @@ async function generateStudioClip(idx) {
     // Extract clean character visual traits from the Character Sheet
     const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
     const cleanChars = sceneChars.map(c => {
-      const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, '').trim();
-      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes' : 'consistent character design';
-      return `${c.name} (${styleCue}, ${d.substring(0, 150)})`;
+      const descPart = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, '').trim();
+      const promptPart = (c.prompt || '').replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '').trim();
+      const combinedTraits = [descPart, promptPart].filter(Boolean).join(', ').substring(0, 180);
+      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes, exact same design as character sheet' : 'consistent character design';
+      return `${c.name} (${styleCue}, ${combinedTraits})`;
     }).join(' and ');
 
     const cleanAction = (promptData?.veoPrompt || sceneData?.description || sceneData?.title || '')
@@ -2720,9 +2741,10 @@ async function generateStudioClip(idx) {
       .replace(/\s+/g, ' ')
       .trim();
 
-    const fullScenePrompt = `3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k render. Character: ${cleanChars}. Scene: ${cleanAction.substring(0, 220)}. Joyful, expressive, cinematic wide composition, detailed animated movie still.`;
+    const fullScenePrompt = `3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k render. Character: ${cleanChars}. Scene: ${cleanAction.substring(0, 220)}. Joyful, expressive, cinematic wide composition, detailed animated movie still, identical character design to character sheet.`;
 
-    const charBaseSeed = getCharacterSeed(primaryChar);
+    const charRefUrl = getCharacterReferenceUrl(primaryChar);
+    const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
     // ponytail: reuse storyboard frame if present; eliminates visual drift and saves network roundtrip
@@ -2733,7 +2755,8 @@ async function generateStudioClip(idx) {
         aspect: S.studioAspect,
         seed,
         model: modelParam,
-        negative: 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet'
+        negative: 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet',
+        image: charRefUrl
       });
     }
 
@@ -4287,12 +4310,16 @@ function buildStudio() {
                 <div style="display:flex;align-items:center;gap:6px">
                   <i class="ti ${statusIcon} ${sb.status === 'generating' ? 'studio-spin' : ''}" style="color:${statusColor};font-size:16px"></i>
                   <span style="font-weight:700;font-size:13px;color:var(--text-primary)">Scene ${i+1}</span>
+                  ${sb.characterName ? `<span style="font-size:10px;color:var(--brand);background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);padding:1px 6px;border-radius:6px;font-weight:600" title="Locked to character sheet">${sb.characterName}</span>` : ''}
                   ${sb.approved ? '<span style="font-size:10px;background:rgba(34,197,94,0.15);color:var(--text-success);padding:1px 6px;border-radius:8px;font-weight:600">✓ Approved</span>' : ''}
                 </div>
                 <div style="display:flex;gap:4px">
-                  ${assignedChars.map(ac => `
-                    <img src="${resolveAssetUrl(ac.url)}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;border:1px solid var(--border)" title="${ac.name}" />
-                  `).join('')}
+                  ${assignedChars.map(ac => {
+                    const isFeatured = sb.characterIds?.includes(ac.id) || sb.characterId === ac.id;
+                    return `
+                      <img src="${resolveAssetUrl(ac.url)}" style="width:20px;height:20px;border-radius:50%;object-fit:cover;border:${isFeatured ? '2px solid var(--brand)' : '1px solid var(--border)'};opacity:${isFeatured ? '1' : '0.5'}" title="${ac.name} ${isFeatured ? '(Active in Scene)' : ''}" />
+                    `;
+                  }).join('')}
                 </div>
               </div>
 
@@ -4660,7 +4687,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.6</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
