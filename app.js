@@ -1528,7 +1528,7 @@ function generateFallbackPrompts(script) {
     const action = s.visualAction || s.description || s.narration || '';
     const chars = Array.isArray(s.characters) ? s.characters.join(', ') : (s.characters || mainChar || '');
 
-    const veoPrompt = `${styleDesc}, ${title}. ${action}. ${chars ? 'Characters: ' + chars + '. ' : ''}Setting: ${env}. Lighting: ${lighting}. Camera: ${camera}, smooth cinematic movement, ultra-detailed 8k render, Unreal Engine 5 aesthetic, photorealistic textures, Disney Pixar animation feature film quality.`;
+    const veoPrompt = `${styleDesc}, ${title}. ${action}. ${chars ? 'Characters: ' + chars + '. ' : ''}Setting: ${env}. Lighting: ${lighting}. Camera: ${camera}, smooth cinematic movement, cute stylized 3D animation, vibrant cheerful colors, 8k render, Disney Pixar animation feature film quality.`;
 
     const negativePrompt = 'blurry, distorted, grainy, low resolution, ugly, duplicate, mutilated, watermark, bad anatomy, out of frame, text artifacts';
     const cameraMove = s.camera || 'Smooth cinematic push-in';
@@ -2418,36 +2418,40 @@ async function generateStoryboardImage(idx) {
 
   try {
     // 2. Extract clean character visual traits from the Character Sheet
+    const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
     const charVisuals = sceneChars.map(c => {
       const rawDesc = c.description || c.prompt || c.name;
       const clean = rawDesc
         .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
-      return `${c.name} (${clean.substring(0, 160)})`;
+      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes and friendly smile' : 'consistent character design';
+      return `${c.name} (${styleCue}, ${clean.substring(0, 160)})`;
     }).join(' and ');
 
     // 3. Clean scene action & setting without repetitive headers
     const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
     const cleanAction = rawAction
-      .replace(/^3D\s+kids\s+animation\s+style,\s*vibrant\s*colors,?\s*/i, '')
+      .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
       .replace(/^Scene\s+\d+:\s*/i, '')
+      .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     // 4. Style anchor (3D Disney/Pixar animated film look)
     const stylePrefix = S.studioStyle === 'anime'
-      ? 'Studio Ghibli anime film still, vibrant aesthetic, masterpiece, detailed background'
+      ? 'Studio Ghibli anime movie still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, masterpiece'
       : (S.studioStyle === 'claymation'
-        ? 'Aardman claymation animation still, stop-motion crafted clay character, soft studio lighting'
+        ? 'Aardman claymation animation film still, stop-motion crafted clay character, warm studio lighting'
         : (S.studioStyle === 'comic'
           ? 'Marvel graphic novel film still, vibrant dynamic comic illustration, detailed ink and cel shading'
           : (S.studioStyle === 'realistic'
             ? 'Cinematic movie still, photorealistic, natural cinematic lighting, 8k render'
-            : '3D Pixar Disney animated film still, masterpiece, vibrant colorful world, whimsical cinematic lighting, 8k render')));
+            : '3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k Pixar render')));
 
     // 5. Final cinematic prompt honoring character sheet continuity
-    const scenePrompt = `${stylePrefix}. Scene: ${cleanAction.substring(0, 240)}. Featuring: ${charVisuals}. Highly expressive, joyful, cinematic wide composition, detailed animated movie still.`;
-    const negPrompt = 'character sheet, model sheet, expression grid, turnaround, multiple views, multi-panel, split screen, dark horror, sinister, green mutant, deformed, ugly, distorted, low quality, blurry, text, watermark, logo';
+    const scenePrompt = `${stylePrefix}. Character: ${charVisuals}. Story Scene: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still.`;
+    const negPrompt = 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
 
     // Determine model
     const imgModelObj = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
@@ -2702,17 +2706,21 @@ async function generateStudioClip(idx) {
     const charNames = sceneChars.map(c => c.name).join(' & ');
 
     // Extract clean character visual traits from the Character Sheet
+    const is3dKids = !S.studioStyle || S.studioStyle === 'kids3d';
     const cleanChars = sceneChars.map(c => {
       const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, '').trim();
-      return `${c.name}: ${d.substring(0, 150)}`;
+      const styleCue = is3dKids ? 'cute stylized 3D Disney Pixar cartoon character with large expressive eyes' : 'consistent character design';
+      return `${c.name} (${styleCue}, ${d.substring(0, 150)})`;
     }).join(' and ');
 
     const cleanAction = (promptData?.veoPrompt || sceneData?.description || sceneData?.title || '')
-      .replace(/^3D\s+kids\s+animation\s+style,\s*vibrant\s*colors,?\s*/i, '')
+      .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
       .replace(/^Scene\s+\d+:\s*/i, '')
+      .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
-    const fullScenePrompt = `3D Pixar Disney animated film still, masterpiece, vibrant rich colors, whimsical cinematic lighting, 8k render. Scene: ${cleanAction.substring(0, 240)}. Featuring: ${cleanChars}. Joyful, expressive, cinematic wide composition, detailed animated movie still.`;
+    const fullScenePrompt = `3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k render. Character: ${cleanChars}. Scene: ${cleanAction.substring(0, 220)}. Joyful, expressive, cinematic wide composition, detailed animated movie still.`;
 
     const charBaseSeed = getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
@@ -2725,7 +2733,7 @@ async function generateStudioClip(idx) {
         aspect: S.studioAspect,
         seed,
         model: modelParam,
-        negative: 'character sheet, model sheet, expressions grid, multiple panels, turnaround, white background, text labels, dark horror, sinister, green mutant, deformed, ugly, distorted'
+        negative: 'photorealistic, live action, real animal, wildlife photography, national geographic, realistic adult lion, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet'
       });
     }
 
@@ -4652,7 +4660,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.5</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.6</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
