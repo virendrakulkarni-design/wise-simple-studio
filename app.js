@@ -1220,6 +1220,16 @@ function normalizeStudioCharacters() {
       const extracted = c.description ? c.description.split(':')[0].trim().replace(/^[^a-zA-Z0-9]+/, '') : '';
       c.name = extracted || `Character ${idx + 1}`;
     }
+    // Upgrade empty or generic "Uploaded character: ..." descriptions to rich 3D Pixar traits
+    if (!c.description || c.description.toLowerCase().startsWith('uploaded character')) {
+      const traits = getCharacterVisualTraits(c);
+      if (traits && !traits.toLowerCase().startsWith('uploaded')) {
+        c.description = traits;
+      }
+    }
+    if (!c.prompt) {
+      c.prompt = generateSampleCharacterPrompt(c.name, c.description);
+    }
   });
 
   // Ensure every scene has assignedCharacterIds array initialized
@@ -1733,17 +1743,47 @@ function getCharacterReferenceUrl(char) {
 
 function getCharacterVisualTraits(c) {
   if (!c) return '';
-  const desc = (c.description || '').replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '').trim();
-  const promptPart = (c.prompt || '').replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '').replace(/centered\s+character\s+portrait|clean\s+studio\s+background|8k\s+render|octane\s+render|volumetric\s+soft\s+shadows/gi, '').trim();
+  const desc = (c.description || '')
+    .replace(/uploaded\s+character:?\s*[^,;()]+(\([^)]+\))?/gi, '')
+    .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '')
+    .trim();
+  const promptPart = (c.prompt || '')
+    .replace(/^Character\s+portrait\s+of\s+[^,]+,?\s*/i, '')
+    .replace(/centered\s+character\s+portrait|clean\s+studio\s+background|8k\s+render|octane\s+render|volumetric\s+soft\s+shadows/gi, '')
+    .replace(/uploaded\s+character[^\n,;]*/gi, '')
+    .trim();
   const raw = [desc, promptPart].filter(Boolean).join(', ');
-  const lower = (c.name + ' ' + raw).toLowerCase();
-  if (lower.includes('toby') || lower.includes('tortoise')) {
+  const lower = ((c.name || '') + ' ' + raw).toLowerCase();
+
+  // 1. Leo the Cuddly Lion Cub
+  if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
+    return 'cute stylized 3D Disney Pixar baby lion cub named Leo, adorable cuddly little lion cub with large expressive round amber eyes, soft golden-amber fur, cream muzzle and belly, tiny rounded cub ears, kitten-like paws, sweet innocent smile, small tuft of hair on head, smooth cub neck with NO adult mane, baby animal';
+  }
+  // 2. Ella the Friendly Blue Elephant
+  if (lower.includes('ella') || lower.includes('elephant')) {
+    return 'cute stylized 3D Disney Pixar baby elephant animal named Ella, soft pastel sky-blue skin, pink blush on cheeks, very large floppy ears with pale pink inner ear, cute little curved trunk lifted happily, large cheerful dark cartoon eyes, sweet friendly smile, four-legged cartoon animal, NOT a human, NOT a girl';
+  }
+  // 3. The Little Owl
+  if (lower.includes('owl')) {
+    return 'cute small round 3D Disney Pixar cartoon barn owl, large round luminous golden-amber eyes, cream heart-shaped facial plumage, soft fluffy brown and cream speckled feathers, tiny curved yellow beak, small feathered wings';
+  }
+  // 4. Mischievous Monkey / Milo
+  if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
+    return 'cute playful 3D Disney Pixar cartoon baby monkey, rich warm chocolate-brown fur, light cream-colored peach face and tummy, large round ears sticking out, wide cheerful toothy grin, long curly tail, holding yellow banana, NOT green';
+  }
+  // 5. Toby the Tortoise
+  if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
     return 'cute stylized 3D green tortoise with glossy jade-green dome shell with glowing amber-orange hexagonal patterns, bright orange neck bandana scarf, big emerald-green eyes, warm friendly smile';
   }
-  if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit')) {
+  // 6. Harry the Hare
+  if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
     return 'tall athletic 3D hare rabbit with honey-golden fur, long floppy ears pink inside, wearing bright red athletic racing tank jersey with white number 1, white wristbands, sneakers, cocky toothy smirk';
   }
-  return raw.substring(0, 180) || c.name;
+
+  if (raw && raw.length > 5 && !raw.startsWith('(')) {
+    return `cute stylized 3D Disney Pixar cartoon character, ${raw.substring(0, 180)}`;
+  }
+  return `cute stylized 3D Disney Pixar cartoon ${c.name}, large expressive round eyes, friendly warm smile, vibrant colors`;
 }
 
 function buildSceneVisualPrompt(idx, assignedChars) {
@@ -1767,25 +1807,41 @@ function buildSceneVisualPrompt(idx, assignedChars) {
     .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
     .replace(/^Scene\s+\d+:\s*/i, '')
     .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
+    .replace(/\b(fluffy|giant|huge|thick|full)\s+mane\b/gi, 'cuddly cub fur')
+    .replace(/\bgreen\s+monkey\b/gi, 'brown baby monkey')
+    .replace(/\bgray\s+elephant\b/gi, 'sky-blue baby elephant')
     .replace(/\s+/g, ' ')
     .trim();
 
   let prompt = '';
-  let negPrompt = 'photorealistic, live action, real animal, wildlife photography, national geographic, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
+  let negPrompt = 'photorealistic, realistic, real animal, wildlife photography, national geographic, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
   let refImage = '';
 
+  const allNamesAndTraits = sceneChars.map(c => `${c.name} ${c.description || ''}`).join(' ').toLowerCase();
+
+  if (allNamesAndTraits.includes('leo') || allNamesAndTraits.includes('lion') || allNamesAndTraits.includes('cub')) {
+    negPrompt += ', adult lion, male lion, full mane, giant mane, dark mane, realistic lion, scary predator, ferocious';
+  }
+  if (allNamesAndTraits.includes('ella') || allNamesAndTraits.includes('elephant')) {
+    negPrompt += ', human, girl, female child, woman, people, person, human face, dress, teddy bear, plush toy, doll, brown bear';
+  }
+  if (allNamesAndTraits.includes('monkey') || allNamesAndTraits.includes('milo')) {
+    negPrompt += ', green fur, green skin, alien, reptile, monster, scary ape, photorealistic monkey';
+  }
+  if (allNamesAndTraits.includes('owl')) {
+    negPrompt += ', human, girl, child, realistic eagle, hawk, terrifying bird';
+  }
+
   if (isMultiChar) {
-    const c1 = sceneChars[0];
-    const c2 = sceneChars[1];
-    const traits1 = getCharacterVisualTraits(c1);
-    const traits2 = getCharacterVisualTraits(c2);
-    prompt = `${stylePrefix}. Two distinct characters together in the same scene: ${c1.name} and ${c2.name}. On one side: ${c1.name} (${traits1}). On the other side: ${c2.name} (${traits2}). Interaction & story action: ${cleanAction.substring(0, 220)}. Both characters visible side-by-side in full view together in frame, wide cinematic composition, detailed 3D Pixar render, exact character designs matching character sheets.`;
-    negPrompt += ', single character only, solo, lonely, alone, missing second character, one character only, duplicate characters';
+    const names = sceneChars.map(c => c.name).join(' & ');
+    const charClauses = sceneChars.map((c, i) => `Character ${i + 1} (${c.name}): ${getCharacterVisualTraits(c)}`).join('. ');
+    prompt = `${stylePrefix}. Scene featuring ${sceneChars.length} distinct characters together: ${names}. ${charClauses}. Action: ${cleanAction.substring(0, 200)}. All ${sceneChars.length} characters visible together in frame in full view, wide cinematic camera angle, 3D Disney Pixar animated movie still, exact character designs matching character sheets.`;
+    negPrompt += ', single character only, solo, lonely, alone, missing other characters, one character only, duplicate characters';
     refImage = '';
   } else {
     const c = sceneChars[0];
     const traits = getCharacterVisualTraits(c);
-    prompt = `${stylePrefix}. Main character in scene: ${c.name} (${traits}). Story Action: ${cleanAction.substring(0, 220)}. Bright cheerful daytime atmosphere, lush colorful environment, expressive playful animation, masterpiece Disney Pixar animated still, identical character design to character sheet.`;
+    prompt = `${stylePrefix}. Main character in scene: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 220)}. 3D Disney Pixar animated movie still, cute stylized cartoon character, bright cheerful lighting, exact character design matching character sheet.`;
     refImage = getCharacterReferenceUrl(c);
   }
 
@@ -2056,12 +2112,14 @@ async function handleCharacterUpload(event) {
     const charName = prompt(`Enter Character Name for "${file.name}" (${check.width}x${check.height}px HD):`, baseName) || baseName;
     const charId = 'char_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
+    const initialTraits = getCharacterVisualTraits({ name: charName });
     if (!S.studioCharacters) S.studioCharacters = [];
     S.studioCharacters.push({
       id: charId,
       name: charName,
       url: check.dataUrl,
-      description: `Uploaded character: ${charName} (${check.width}x${check.height}px HD)`
+      description: initialTraits,
+      prompt: generateSampleCharacterPrompt(charName, initialTraits)
     });
     accepted++;
     studioLog(`✓ Accepted high-quality character image "${charName}" (${check.width}x${check.height}px)`);
@@ -4681,7 +4739,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.1</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.2</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
