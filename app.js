@@ -114,12 +114,12 @@ function renderModelSelect() {
 const IMAGE_MODELS = [
   {
     id: 'nano-banana',
-    label: 'Nano Banana (Free / Consistent Character Model)',
-    shortLabel: 'Nano Banana',
-    badge: 'Free / Consistent',
-    desc: 'Lightweight, ultra-fast model tuned for character consistency and scene preservation.',
+    label: 'Flux.1 Schnell (Recommended / Pixar Quality)',
+    shortLabel: 'Flux.1 (Recommended)',
+    badge: 'Free / SOTA',
+    desc: 'State-of-the-art visual model tuned for character consistency and Pixar-quality scene generation.',
     engine: 'pollinations',
-    param: 'nano-banana'
+    param: 'flux'
   },
   {
     id: 'google-flow',
@@ -2227,7 +2227,8 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
   const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
   const s = seed || Math.floor(Math.random() * 900000) + 100000;
   const neg = negative ? `&negative=${encodeURIComponent(negative)}` : '';
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 450))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(model)}${neg}`;
+  const cleanModel = (model === 'nano-banana' || !model) ? 'flux' : model;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 950))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}`;
 }
 
 async function generateCharacterFromPrompt(customPrompt, customName, customDesc) {
@@ -2393,8 +2394,21 @@ async function generateStoryboardImage(idx) {
     return;
   }
 
-  const primaryChar = assignedChars[0];
-  const charNames = assignedChars.map(c => c.name).join(' & ');
+  // 1. Identify which assigned characters actually appear in this scene
+  const sceneText = `${sceneData?.title || ''} ${promptData?.veoPrompt || ''} ${sceneData?.description || ''} ${sceneData?.narration || ''} ${promptData?.character || ''}`.toLowerCase();
+  
+  let sceneChars = assignedChars.filter(c => {
+    const name = (c.name || '').toLowerCase();
+    const firstName = name.split(' ')[0];
+    return (firstName.length > 2 && sceneText.includes(firstName)) || (name.length > 2 && sceneText.includes(name));
+  });
+
+  if (!sceneChars.length) {
+    sceneChars = [assignedChars[0]];
+  }
+
+  const primaryChar = sceneChars[0];
+  const charNames = sceneChars.map(c => c.name).join(' & ');
 
   S.studioStoryboard[idx] = {
     sceneIndex: idx,
@@ -2404,7 +2418,7 @@ async function generateStoryboardImage(idx) {
     error: null,
     approved: false,
     characterId: primaryChar.id,
-    characterIds: assignedChars.map(c => c.id),
+    characterIds: sceneChars.map(c => c.id),
     characterName: charNames,
     characterUrl: primaryChar.url
   };
@@ -2412,16 +2426,42 @@ async function generateStoryboardImage(idx) {
   render();
 
   try {
-    // Build scene-specific visual prompt
-    const cleanDesc = (primaryChar.description || '').replace(/character\s*sheet|expressions|palette/gi, 'appearance').substring(0, 150);
-    const scenePrompt = `SUBJECT: ${charNames}, ${cleanDesc}. ACTION: ${sceneData?.title || ''}, ${promptData?.veoPrompt || sceneData?.description || ''}. Cinematic scene composition, high quality. (STRICT CONTINUITY: Must maintain identical character design, age, species, and clothing for ${charNames}).`;
-    const negPrompt = 'character sheet, expression grid, palette, text, watermark, logo, collage, multi-panel, tiled, split screen, blurry, low quality, mutated, deformed';
+    // 2. Extract clean character visual traits from the Character Sheet
+    const charVisuals = sceneChars.map(c => {
+      const rawDesc = c.description || c.prompt || c.name;
+      const clean = rawDesc
+        .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return `${c.name} (${clean.substring(0, 160)})`;
+    }).join(' and ');
+
+    // 3. Clean scene action & setting without repetitive headers
+    const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
+    const cleanAction = rawAction
+      .replace(/^3D\s+kids\s+animation\s+style,\s*vibrant\s*colors,?\s*/i, '')
+      .replace(/^Scene\s+\d+:\s*/i, '')
+      .trim();
+
+    // 4. Style anchor (3D Disney/Pixar animated film look)
+    const stylePrefix = S.studioStyle === 'anime'
+      ? 'Studio Ghibli anime film still, vibrant aesthetic, masterpiece, detailed background'
+      : (S.studioStyle === 'claymation'
+        ? 'Aardman claymation animation still, stop-motion crafted clay character, soft studio lighting'
+        : (S.studioStyle === 'comic'
+          ? 'Marvel graphic novel film still, vibrant dynamic comic illustration, detailed ink and cel shading'
+          : (S.studioStyle === 'realistic'
+            ? 'Cinematic movie still, photorealistic, natural cinematic lighting, 8k render'
+            : '3D Pixar Disney animated film still, masterpiece, vibrant colorful world, whimsical cinematic lighting, 8k render')));
+
+    // 5. Final cinematic prompt honoring character sheet continuity
+    const scenePrompt = `${stylePrefix}. Scene: ${cleanAction.substring(0, 240)}. Featuring: ${charVisuals}. Highly expressive, joyful, cinematic wide composition, detailed animated movie still.`;
+    const negPrompt = 'character sheet, model sheet, expression grid, turnaround, multiple views, multi-panel, split screen, dark horror, sinister, green mutant, deformed, ugly, distorted, low quality, blurry, text, watermark, logo';
 
     // Determine model
     const imgModel = S.activeImageModel || 'flux';
     let imageUrl = null;
 
-    // ponytail: unified fetchImage replaces 35 lines of duplicate Imagen/Pollinations branching
     const charBaseSeed = getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
 
@@ -2430,7 +2470,7 @@ async function generateStoryboardImage(idx) {
       aspect: S.studioAspect,
       seed: seed,
       negative: negPrompt,
-      model: imgModel === 'nanobanana' ? 'nano-banana' : 'flux'
+      model: (imgModel === 'nanobanana' || imgModel === 'nano-banana') ? 'flux' : imgModel
     });
 
     // Preload image so UI stays in loading state until image bytes actually arrive
@@ -2648,27 +2688,39 @@ async function generateStudioClip(idx) {
     const sceneAction = promptData?.veoPrompt || sceneData?.description || '';
     const sceneEnv = sceneData?.environment || '';
 
-    // Determine model parameter (prefer nano-banana)
-    let modelParam = 'nano-banana';
+    // Determine model parameter (prefer flux)
+    let modelParam = 'flux';
     if (activeEngine.modelParam && activeEngine.modelParam !== 'veo-2.0-generate-001') {
-      modelParam = activeEngine.modelParam;
+      modelParam = (activeEngine.modelParam === 'nano-banana') ? 'flux' : activeEngine.modelParam;
     } else if (S.activeImageModel && S.activeImageModel !== 'google-flow' && S.activeImageModel !== 'google-imagen') {
       const imgModel = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
-      if (imgModel?.param) modelParam = imgModel.param;
+      if (imgModel?.param) modelParam = (imgModel.param === 'nano-banana') ? 'flux' : imgModel.param;
     }
 
-    // Extract clean character visual traits without confusing sheet/expression words
-    const cleanChars = assignedChars.map(c => {
-      const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, 'appearance').trim();
-      return `${c.name}, ${d.substring(0, 150)}`;
+    // 1. Identify which assigned characters actually appear in this scene
+    const sceneText = `${sceneData?.title || ''} ${promptData?.veoPrompt || ''} ${sceneData?.description || ''} ${sceneData?.narration || ''} ${promptData?.character || ''}`.toLowerCase();
+    let sceneChars = assignedChars.filter(c => {
+      const name = (c.name || '').toLowerCase();
+      const firstName = name.split(' ')[0];
+      return (firstName.length > 2 && sceneText.includes(firstName)) || (name.length > 2 && sceneText.includes(name));
+    });
+    if (!sceneChars.length) sceneChars = [assignedChars[0]];
+
+    const primaryChar = sceneChars[0];
+    const charNames = sceneChars.map(c => c.name).join(' & ');
+
+    // Extract clean character visual traits from the Character Sheet
+    const cleanChars = sceneChars.map(c => {
+      const d = (c.description || '').replace(/character\s*sheet|expressions|model\s*sheet|palette|turnaround/gi, '').trim();
+      return `${c.name}: ${d.substring(0, 150)}`;
     }).join(' and ');
 
-    // Explicit single scene shot prompt (Subject first for Flux attention):
-    const fullScenePrompt = `SUBJECT: ${cleanChars}. ACTION: Single cinematic animated scene shot, ${sceneEnv}, ${sceneAction}. Style: ${styleInfo.label}, 3D Pixar animated film still, full scene background, rich lighting, 4k render. (STRICT CONTINUITY RULE: Maintain identical character design, exact same age, species, fur/skin color, clothing for ${cleanChars} across all scenes. Single full scene shot depicting this story moment. Do NOT draw a character sheet or multiple panels).`;
-    const visualPrompt = encodeURIComponent(fullScenePrompt.substring(0, 480));
+    const cleanAction = (promptData?.veoPrompt || sceneData?.description || sceneData?.title || '')
+      .replace(/^3D\s+kids\s+animation\s+style,\s*vibrant\s*colors,?\s*/i, '')
+      .replace(/^Scene\s+\d+:\s*/i, '')
+      .trim();
 
-    const aspectWidth = S.studioAspect === '9:16' ? 576 : (S.studioAspect === '1:1' ? 768 : 1024);
-    const aspectHeight = S.studioAspect === '9:16' ? 1024 : (S.studioAspect === '1:1' ? 768 : 576);
+    const fullScenePrompt = `3D Pixar Disney animated film still, masterpiece, vibrant rich colors, whimsical cinematic lighting, 8k render. Scene: ${cleanAction.substring(0, 240)}. Featuring: ${cleanChars}. Joyful, expressive, cinematic wide composition, detailed animated movie still.`;
 
     const charBaseSeed = getCharacterSeed(primaryChar);
     const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
@@ -2681,7 +2733,7 @@ async function generateStudioClip(idx) {
         aspect: S.studioAspect,
         seed,
         model: modelParam,
-        negative: 'character sheet, model sheet, expressions grid, multiple panels, turnaround, white background, text labels'
+        negative: 'character sheet, model sheet, expressions grid, multiple panels, turnaround, white background, text labels, dark horror, sinister, green mutant, deformed, ugly, distorted'
       });
     }
 
@@ -4608,7 +4660,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.3</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.4</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
