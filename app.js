@@ -1778,6 +1778,19 @@ function getCharacterReferenceUrl(char) {
   return '';
 }
 
+function sanitizeScenePromptText(text) {
+  if (!text) return '';
+  return text
+    .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
+    .replace(/^Scene\s+\d+:\s*/i, '')
+    .replace(/\bphotorealistic(\s+textures)?\b/gi, 'stylized 3D cartoon')
+    .replace(/\b(fluffy|giant|huge|thick|full)\s+mane\b/gi, 'cuddly cub coat')
+    .replace(/\bgreen\s+monkey\b/gi, 'brown monkey')
+    .replace(/\bgray\s+elephant\b/gi, 'sky-blue baby elephant')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function getCharacterVisualTraits(c, compact = false) {
   if (!c) return '';
   const desc = (c.description || '')
@@ -1792,53 +1805,53 @@ function getCharacterVisualTraits(c, compact = false) {
   const raw = [desc, promptPart].filter(Boolean).join(', ');
   const lower = ((c.name || '') + ' ' + raw).toLowerCase();
 
-  // Multi-character compact mode (10-14 words per character, no style repetition)
+  // Multi-character compact mode: explicit camera orientation, anatomical landmarks, and relative scale
   if (compact) {
     if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
-      return 'a cute golden baby lion cub with small brown tuft on head and cream muzzle';
+      return 'small cute golden baby lion cub facing forward toward camera in 3/4 view, small brown tuft on head, cream muzzle, big expressive round eyes and sweet smile';
     }
     if (lower.includes('ella') || lower.includes('elephant')) {
-      return 'a friendly light-blue baby elephant with curved trunk and large floppy ears';
+      return 'friendly sky-blue baby elephant, long curved trunk raised happily, giant floppy elephant ears with soft pink inside, big sparkling eyes and smiling face';
     }
     if (lower.includes('owl')) {
-      return 'a small round brown feathered owl with big golden eyes';
+      return 'small brown feathered owl bird with wings and beak, perched high on a leafy tree branch above, big golden eyes';
     }
     if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
-      return 'a playful little brown monkey with peach face, holding a yellow banana';
+      return 'playful little brown monkey with peach face, holding a yellow banana, smiling face';
     }
     if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
-      return 'a cute green tortoise with jade shell and bright orange neck bandana';
+      return 'cute green tortoise with glossy jade shell and orange bandana, big emerald eyes';
     }
     if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
-      return 'an athletic golden hare rabbit wearing a red racing jersey #1';
+      return 'athletic golden hare rabbit wearing red racing jersey #1, toothy confident smirk';
     }
-    return `a cute cartoon ${c.name}`;
+    return `cute cartoon ${c.name} facing forward toward camera with expressive eyes and smile`;
   }
 
-  // Single character detailed traits (species and visual cues only, no style repetition)
+  // Single character detailed traits (species and visual cues only, anti-photorealistic fur)
   if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
-    return 'cute golden baby lion cub, small brown tuft on head, cream muzzle and belly, big round cartoon eyes, sweet innocent smile';
+    return 'cute golden baby lion cub facing forward toward camera in 3/4 view, smooth stylized coat, small brown tuft on head, cream muzzle and belly, big round sparkling cartoon eyes, sweet innocent smile, NOT realistic fur';
   }
   if (lower.includes('ella') || lower.includes('elephant')) {
-    return 'friendly light-blue baby elephant, curved trunk, large floppy ears with pink inside, sweet friendly smile';
+    return 'friendly sky-blue baby elephant facing camera, distinct long curved trunk raised happily, large floppy ears with soft pink inside, big sparkling cartoon eyes, sweet friendly smile';
   }
   if (lower.includes('owl')) {
-    return 'small round brown feathered owl perched on a branch, cream heart-shaped face plumage, big golden eyes';
+    return 'small round brown feathered owl bird perched on a leafy tree branch, cream heart-shaped face plumage, big luminous golden eyes, wise gentle expression';
   }
   if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
-    return 'playful little brown monkey, peach face and tummy, round ears, long tail, holding a yellow banana';
+    return 'playful little brown monkey, peach face and tummy, round ears, long tail, holding a yellow banana, cheerful cartoon grin';
   }
   if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
-    return 'cute green tortoise, glossy jade-green dome shell, bright orange neck bandana scarf, big emerald eyes';
+    return 'cute green tortoise, glossy jade-green dome shell, bright orange neck bandana scarf, big emerald eyes, friendly smile';
   }
   if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
-    return 'tall athletic golden hare rabbit, long ears, bright red athletic racing tank jersey #1, toothy smirk';
+    return 'tall athletic golden hare rabbit, long ears, bright red athletic racing tank jersey #1, toothy confident smirk';
   }
 
   if (raw && raw.length > 5 && !raw.startsWith('(')) {
-    return `cute cartoon character, ${raw.substring(0, 120)}`;
+    return `cute cartoon character facing forward toward camera, ${raw.substring(0, 100)}`;
   }
-  return `cute cartoon ${c.name}, big expressive cartoon eyes, friendly warm smile`;
+  return `cute cartoon ${c.name} facing forward toward camera, big expressive cartoon eyes, friendly warm smile`;
 }
 
 function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
@@ -1848,48 +1861,56 @@ function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
   const sceneChars = (assignedChars && assignedChars.length > 0) ? assignedChars : (S.studioCharacters?.length ? [S.studioCharacters[0]] : []);
   const isMultiChar = sceneChars.length > 1;
 
-  const styleObj = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
-  const styleRule = styleObj.imageRule || 'Cute stylized 3D cartoon animation style, Disney Pixar aesthetic, smooth cartoon shapes, vibrant cheerful colors, bright sunny lighting, NOT realistic fur, NOT photorealistic';
-  let negPrompt = styleObj.negRule || 'photorealistic, realistic animal, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters';
+  // Unified style anchor across all scenes ensures zero style disconnect (Point 7 & Point 5)
+  const STYLE_ANCHOR = '3D Disney Pixar animation film still, high key bright sunny daylight, smooth stylized CGI, clean 3D character models, vibrant cheerful colors, NOT realistic fur strands, NOT real animal photography';
+  let negPrompt = 'photorealistic, realistic fur, detailed hair strands, fur texture, hyperrealistic fur, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters, claymation, playdough, flat drawing';
 
   const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
-  const cleanAction = rawAction
-    .replace(/^(3D\s+kids\s+animation\s+style|vibrant\s+colors|expressive\s+characters|whimsical\s+lighting|[,\s.-])+/gi, '')
-    .replace(/^Scene\s+\d+:\s*/i, '')
-    .replace(/\bphotorealistic(\s+textures)?\b/gi, '')
-    .replace(/\b(fluffy|giant|huge|thick|full)\s+mane\b/gi, 'cuddly cub fur')
-    .replace(/\bgreen\s+monkey\b/gi, 'brown baby monkey')
-    .replace(/\bgray\s+elephant\b/gi, 'sky-blue baby elephant')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const cleanAction = sanitizeScenePromptText(rawAction);
+
+  // Environmental storytelling cue (Point 8)
+  const rawEnv = sceneData?.environment || sceneData?.location || '';
+  const cleanEnv = rawEnv
+    ? sanitizeScenePromptText(rawEnv).substring(0, 45)
+    : 'lush sunny fairytale jungle clearing with green canopy trees and colorful flowers';
 
   let prompt = '';
   let refImage = '';
   const allNames = sceneChars.map(c => c.name).join(' & ');
 
   if (isMultiChar) {
-    // Spatial positioning prevents diffusion models from fusing characters into one mutated body
-    const positions = ['on the left', 'in the center', 'on the right', 'perched on a branch above', 'standing nearby', 'in the foreground'];
+    // Spatial positioning with vertical staging and relative scale (Points 2, 3, 4, 9)
     const spatialClauses = sceneChars.map((c, i) => {
-      const pos = positions[i] || `friend ${i + 1}`;
-      return `${pos} is ${c.name} (${getCharacterVisualTraits(c, true)})`;
-    }).join('; ');
+      const lower = (c.name || '').toLowerCase();
+      let pos = '';
+      if (lower.includes('owl') || lower.includes('bird')) {
+        pos = 'Perched on leafy tree branch above';
+      } else if (lower.includes('ella') || lower.includes('elephant')) {
+        pos = 'Standing in midground center';
+      } else if (i === 0) {
+        pos = 'In foreground left';
+      } else if (i === 1) {
+        pos = 'On the right';
+      } else {
+        pos = 'Nearby';
+      }
+      return `${pos}: ${c.name} (${getCharacterVisualTraits(c, true)})`;
+    }).join('. ');
+
+    const stagingRule = 'Staging: separated characters side by side with visible physical space, elephant larger than small cub, all facing camera with happy faces, NOT fused bodies.';
 
     if (modelId === 'flux') {
-      // Flux T5-XXL: Natural descriptive sentence with explicit spatial layout and species separation
-      prompt = `${styleRule}. In this scene: ${cleanAction ? cleanAction.substring(0, 100) + '. ' : ''}Featuring ${sceneChars.length} distinct cartoon friends together: ${spatialClauses}. All ${sceneChars.length} distinct characters clearly visible in full view (${allNames}), vibrant cartoon illustration, NOT fused bodies, NOT realistic fur.`;
+      prompt = `${STYLE_ANCHOR}. Setting: ${cleanEnv}. Characters: ${spatialClauses}. ${stagingRule}`;
     } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
-      // CLIP 77-token budget: ultra-concise
       const shortList = sceneChars.map(c => `${c.name}: ${getCharacterVisualTraits(c, true)}`).join(', ');
-      prompt = `${styleRule}. ${allNames} together: ${shortList}. ${cleanAction.substring(0, 60)}. Full view, clean cartoon lines.`;
+      prompt = `${STYLE_ANCHOR}. ${allNames} together: ${shortList}. Setting: ${cleanEnv}. Clean cartoon lines.`;
     } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
-      // Imagen 3: concise natural scene description (< 400 chars)
-      prompt = `${styleRule}. Scene: ${cleanAction.substring(0, 80)}. Characters together: ${spatialClauses}. Cinematic wide shot.`;
+      prompt = `${STYLE_ANCHOR}. Setting: ${cleanEnv}. Scene: ${cleanAction.substring(0, 80)}. Characters: ${spatialClauses}. Cinematic wide shot.`;
     } else {
-      prompt = `${styleRule}. Animated scene: ${cleanAction ? cleanAction.substring(0, 90) + '. ' : ''}Featuring ${sceneChars.length} distinct cartoon characters: ${spatialClauses}. All characters visible in full view, bright cheerful colors.`;
+      prompt = `${STYLE_ANCHOR}. Animated scene: ${cleanAction ? cleanAction.substring(0, 80) + '. ' : ''}Setting: ${cleanEnv}. Characters: ${spatialClauses}. All characters visible in full view.`;
     }
 
-    negPrompt += ', single character only, solo, lonely, alone, missing other characters, one character only, duplicate characters, two bodies one face, 4 legs on one body, fused body';
+    negPrompt += ', single character only, solo, missing characters, missing owl, duplicate characters, fused body, merged characters, chimera';
     refImage = ''; // Never pass single-character reference to multi-character scene to avoid visual takeover
   } else {
     // Single character scene
@@ -1897,16 +1918,21 @@ function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
     const traits = getCharacterVisualTraits(c, false);
 
     if (modelId === 'flux') {
-      prompt = `${styleRule}. Main character: ${c.name} (${traits}). Action: ${cleanAction ? cleanAction.substring(0, 140) + '.' : ''} Full character view, clean cartoon outlines, bright cheerful lighting, storybook illustration, NOT realistic fur.`;
+      prompt = `${STYLE_ANCHOR}. Main character: ${c.name} (${traits}). Action: ${cleanAction ? cleanAction.substring(0, 90) + '.' : ''} Setting: ${cleanEnv}. Clean cartoon outlines, warm lighting, storybook illustration.`;
     } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
-      prompt = `${styleRule}, ${c.name} (${traits}), ${cleanAction.substring(0, 80)}, cartoon cel animation, bright colors`;
+      prompt = `${STYLE_ANCHOR}, ${c.name} (${traits}), ${cleanAction.substring(0, 70)}, setting: ${cleanEnv}, cartoon cel animation`;
     } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
-      prompt = `${styleRule}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 120)}. Studio animated movie still.`;
+      prompt = `${STYLE_ANCHOR}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 90)}. Setting: ${cleanEnv}. Studio animated movie still.`;
     } else {
-      prompt = `${styleRule}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 140)}. Vibrant cartoon animation still, clean outlines.`;
+      prompt = `${STYLE_ANCHOR}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 90)}. Setting: ${cleanEnv}. Vibrant cartoon animation still, clean outlines.`;
     }
 
     refImage = getCharacterReferenceUrl(c);
+  }
+
+  // Ensure prompt stays within ~460 char budget to prevent URL overflow & Pollinations HTTP 500
+  if (prompt.length > 460) {
+    prompt = prompt.substring(0, 460);
   }
 
   return { sceneChars, prompt, negPrompt, refImage };
@@ -2413,8 +2439,8 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
   const w = width || (aspect === '9:16' ? 576 : (aspect === '1:1' ? 768 : 1024));
   const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
   const s = seed || Math.floor(Math.random() * 900000) + 100000;
-  const neg = negative ? `&negative=${encodeURIComponent(negative)}` : '';
-  const imgParam = (image && typeof image === 'string' && image.startsWith('http')) ? `&image=${encodeURIComponent(image)}` : '';
+  const neg = negative ? `&negative=${encodeURIComponent(negative.substring(0, 140))}` : '';
+  const imgParam = (image && typeof image === 'string' && image.startsWith('http')) ? `&image=${encodeURIComponent(image.substring(0, 250))}` : '';
   const modelAliases = {
     'nano-banana': 'flux',
     'flux-3d': 'flux',
@@ -2424,7 +2450,7 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
     'sana': 'sana'
   };
   const cleanModel = modelAliases[model] || model || 'flux';
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 950))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}${imgParam}`;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt.substring(0, 480))}?width=${w}&height=${h}&nologo=true&seed=${s}&model=${encodeURIComponent(cleanModel)}${neg}${imgParam}`;
 }
 
 async function generateCharacterFromPrompt(customPrompt, customName, customDesc) {
@@ -2634,14 +2660,13 @@ async function generateStoryboardImage(idx) {
       try {
         const loaded = await new Promise((resolve) => {
           const preImg = new Image();
-          const timer = setTimeout(() => resolve(false), 15000);
+          const timer = setTimeout(() => resolve(false), 40000);
           preImg.onload = () => { clearTimeout(timer); resolve(true); };
           preImg.onerror = () => { clearTimeout(timer); resolve(false); };
           preImg.src = imageUrl;
         });
         if (!loaded) {
-          const fallbackUrl = imageUrl.replace(/model=[^&]+/, 'model=z-image-turbo');
-          if (fallbackUrl !== imageUrl) imageUrl = fallbackUrl;
+          console.warn('Image preloading timed out after 40s');
         }
       } catch (_) {}
     }
@@ -4405,6 +4430,12 @@ function buildStudio() {
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:3px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:2px 4px">
+              <span style="font-size:11px;color:var(--text-muted);padding:0 4px"><i class="ti ti-aspect-ratio"></i></span>
+              <button class="btn-ghost" style="font-size:11px;padding:3px 7px;border-radius:6px;${S.studioAspect === '16:9' ? 'background:var(--brand);color:#fff;font-weight:700;' : 'color:var(--text-secondary);'}" onclick="S.studioAspect='16:9';saveStudioState();render()">16:9</button>
+              <button class="btn-ghost" style="font-size:11px;padding:3px 7px;border-radius:6px;${S.studioAspect === '9:16' ? 'background:var(--brand);color:#fff;font-weight:700;' : 'color:var(--text-secondary);'}" onclick="S.studioAspect='9:16';saveStudioState();render()">9:16</button>
+              <button class="btn-ghost" style="font-size:11px;padding:3px 7px;border-radius:6px;${S.studioAspect === '1:1' ? 'background:var(--brand);color:#fff;font-weight:700;' : 'color:var(--text-secondary);'}" onclick="S.studioAspect='1:1';saveStudioState();render()">1:1</button>
+            </div>
             ${renderImageModelSelect(true)}
             <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="generateAllStoryboards()" ${S.studioLoading ? 'disabled' : ''}>
               <i class="ti ti-palette"></i> ${readyCount > 0 ? 'Re-generate All' : 'Generate All Storyboards'}
@@ -4457,17 +4488,19 @@ function buildStudio() {
               </div>
 
               <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">
-                ${(p?.veoPrompt || sc?.description || '').substring(0, 150)}${(p?.veoPrompt || sc?.description || '').length > 150 ? '...' : ''}
+                ${(() => {
+                  const raw = p?.veoPrompt || sc?.description || '';
+                  const clean = sanitizeScenePromptText(raw);
+                  return clean.substring(0, 150) + (clean.length > 150 ? '...' : '');
+                })()}
               </div>
 
               ${(() => {
-                const aspectStyle = S.studioAspect === '9:16'
-                  ? 'height: 280px;'
-                  : (S.studioAspect === '1:1' ? 'height: 240px;' : 'height: 200px;');
+                const aspectClass = S.studioAspect === '9:16' ? 'aspect-9-16' : (S.studioAspect === '1:1' ? 'aspect-1-1' : '');
 
                 if (sb.status === 'generating') {
                   return `
-                    <div class="storyboard-img-container" style="${aspectStyle}">
+                    <div class="storyboard-img-container ${aspectClass}">
                       <div class="storyboard-loading-box">
                         <div class="storyboard-loader-icon">
                           <div class="storyboard-loader-spinner"></div>
@@ -4489,7 +4522,7 @@ function buildStudio() {
 
                 if (sb.status === 'queued') {
                   return `
-                    <div class="storyboard-img-container" style="${aspectStyle}">
+                    <div class="storyboard-img-container ${aspectClass}">
                       <div class="storyboard-queued-box">
                         <i class="ti ti-clock" style="font-size:24px;color:var(--text-muted);opacity:0.6"></i>
                         <span style="font-size:12px;font-weight:600;color:var(--text-primary)">Queued for Generation</span>
@@ -4501,7 +4534,7 @@ function buildStudio() {
 
                 if (sb.imageUrl) {
                   return `
-                    <div class="storyboard-img-container" style="${aspectStyle}">
+                    <div class="storyboard-img-container ${aspectClass}">
                       <div class="storyboard-loading-box" id="sb-loader-${i}" style="position:absolute;inset:0;z-index:2;display:flex">
                         <div class="storyboard-loader-icon">
                           <div class="storyboard-loader-spinner"></div>
@@ -4524,7 +4557,7 @@ function buildStudio() {
                 }
 
                 return `
-                  <div class="storyboard-img-container" style="${aspectStyle}">
+                  <div class="storyboard-img-container ${aspectClass}">
                     <div class="storyboard-placeholder">
                       <i class="ti ti-photo-off" style="font-size:28px;opacity:0.4"></i>
                       <span style="font-weight:600;font-size:12px">Not generated</span>
@@ -4820,7 +4853,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.3</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.4</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
