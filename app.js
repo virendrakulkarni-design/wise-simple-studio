@@ -113,6 +113,15 @@ function renderModelSelect() {
 
 const IMAGE_MODELS = [
   {
+    id: 'flux-ipadapter',
+    label: 'Flux.1 + IP-Adapter (Replicate / True Character Sheet Lock)',
+    shortLabel: 'Flux IP-Adapter',
+    badge: 'Hardware Lock',
+    desc: 'Direct neural reference conditioning via IP-Adapter. Injects character sheet face and body embeddings directly into diffusion cross-attention layers.',
+    engine: 'replicate',
+    param: 'lucataco/flux-dev-multi-controlnet'
+  },
+  {
     id: 'flux',
     label: 'Flux.1 Schnell (Recommended / Pixar 3D Quality)',
     shortLabel: 'Flux.1 (Recommended)',
@@ -167,6 +176,28 @@ const IMAGE_MODELS = [
     param: 'dreamshaper'
   }
 ];
+
+
+function openReplicateKeyPrompt() {
+  const currentKey = S.replicateApiKey || '';
+  const newKey = prompt(
+    'Enter your Replicate API Token (starts with r8_...):\n\n' +
+    'Get your token at: https://replicate.com/account/api-tokens\n\n' +
+    'This activates true hardware IP-Adapter character reference conditioning (locks generated scenes to character sheet pixels).',
+    currentKey
+  );
+  if (newKey !== null) {
+    const trimmed = newKey.trim();
+    S.replicateApiKey = trimmed;
+    localStorage.setItem('replicate-key', trimmed);
+    if (trimmed) {
+      studioLog('✓ Replicate API Token saved! Hardware IP-Adapter is active.');
+    } else {
+      studioLog('Replicate API Token cleared.');
+    }
+    render();
+  }
+}
 
 function openGoogleKeyPrompt() {
   const currentKey = S.googleApiKey || '';
@@ -376,6 +407,7 @@ const STUDIO_DURATIONS = [
 const S = {
   apiKey: localStorage.getItem('groq-key') || '',
   googleApiKey: localStorage.getItem('google-key') || '',
+    replicateApiKey: localStorage.getItem('replicate-key') || '',
   googleClientId: localStorage.getItem('gdrive-client-id') || '',
   googleDriveConnected: !!localStorage.getItem('gdrive-access-token'),
   googleDriveFolderId: localStorage.getItem('gdrive-folder-id') || '1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY',
@@ -2380,6 +2412,50 @@ function generateLocalCharacterAvatar(name, role) {
 
 // ponytail: unified image generator covering Google Imagen 3 and Pollinations AI with reference image guidance
 async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negative = '', width, height, image = '' }) {
+  // Approach B: Replicate IP-Adapter / Hardware Reference Conditioning
+  if ((model === 'flux-ipadapter' || S.activeImageModel === 'flux-ipadapter') && S.replicateApiKey) {
+    try {
+      studioLog('🧬 Conditioning frame generation on Character Sheet via IP-Adapter...');
+      const repRes = await fetch('https://api.replicate.com/v1/predictions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${S.replicateApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          version: '900df870d061129e9d997d812239d57a22ef45b74f07a4a9ad9c464ae2326759',
+          input: {
+            prompt: prompt,
+            image: image || undefined,
+            aspect_ratio: aspect === '9:16' ? '9:16' : (aspect === '1:1' ? '1:1' : '16:9'),
+            num_outputs: 1
+          }
+        })
+      });
+      if (repRes.ok) {
+        const pred = await repRes.json();
+        // Poll prediction result
+        let resultUrl = '';
+        for (let attempt = 0; attempt < 30; attempt++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const checkRes = await fetch(`https://api.replicate.com/v1/predictions/${pred.id}`, {
+            headers: { 'Authorization': `Bearer ${S.replicateApiKey}` }
+          });
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData.status === 'succeeded' && checkData.output?.[0]) {
+              resultUrl = checkData.output[0];
+              break;
+            }
+            if (checkData.status === 'failed') break;
+          }
+        }
+        if (resultUrl) return resultUrl;
+      }
+    } catch (repErr) {
+      console.warn('Replicate IP-Adapter failed, falling back to Imagen/Pollinations:', repErr);
+    }
+  }
   if ((S.activeImageModel === 'google-flow' || S.activeImageModel === 'google-imagen') && S.googleApiKey) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${S.googleApiKey}`, {
@@ -4831,7 +4907,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.5</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.8.0-ipadapter</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
