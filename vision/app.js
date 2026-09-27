@@ -313,55 +313,157 @@ function renderVideoEngineSelect(compact = false) {
 
 const STUDIO_STYLES = {
   kids3d: {
+    id: 'kids3d',
     label: '3D Kids Animation (Pixar/Disney)',
     icon: 'ti-sparkles',
     desc: 'Vibrant, colorful, expressive characters, whimsical lighting, joyful humor',
-    imageRule: 'Cute stylized 3D cartoon animation style, Disney Pixar aesthetic, smooth cartoon shapes, vibrant cheerful colors, bright sunny lighting, NOT realistic fur, NOT photorealistic',
-    negRule: 'photorealistic, realistic animal, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters'
+    mood: 'Joyful, playful, hilarious, full of laughter and wonder',
+    targetAudience: 'Children (aged 4-8) and families',
+    narratorPersona: 'World-class, energetic, delightfully cheerful children\'s storyteller. Warm, enthusiastic, full of wonder and bouncy pacing.',
+    dialogueTone: 'Snappy, innocent, comical, heartwarming character banter',
+    soundEffectsCue: 'Entertaining comical sound cues like [BOING!], [ZOOM!], [GIGGLE!], [SNORE!], [SPLASH!]',
+    characterArtRule: 'Cute stylized 3D character animation, Pixar Disney aesthetic, smooth vinyl surfaces, rounded friendly anatomy, vibrant bright colors, expressive eyes, NOT realistic fur, NOT wildlife photography',
+    characterNegRule: 'photorealistic, realistic animal, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy',
+    sceneImageRule: '3D animated feature film still, Pixar Disney 3D style, vibrant saturated colors, soft cinematic studio rim lighting, clean whimsical composition',
+    sceneNegRule: 'photorealistic, real animal photo, dark, murky, muddy, gritty, mutated, deformed, duplicate faces, fused limbs',
+    videoMotionRule: 'Playful and dynamic camera motion, bouncy tracking shot, gentle comedic push-in, joyful character gestures',
+    voiceSettings: {
+      pitch: 1.30,
+      rate: 1.08,
+      preferredVoiceGenders: ['female', 'child']
+    }
   },
   storybook: {
+    id: 'storybook',
     label: '2D Cartoon & Storybook',
     icon: 'ti-book',
     desc: 'Classic Disney 2D animation, hand-drawn cel art, clean outlines, storybook illustration',
-    imageRule: 'Classic 2D Disney cartoon cel animation style, clean hand-drawn cartoon outlines, flat vibrant colors, storybook illustration art, NOT 3D render, NOT realistic',
-    negRule: 'photorealistic, 3D CGI render, realistic fur, raytracing, dark, murky, mutant, deformed, fused bodies, 4 legs on one body'
+    mood: 'Charming, gentle, heartwarming, nostalgic fairytale wonder',
+    targetAudience: 'Early readers and fairytale lovers',
+    narratorPersona: 'Gentle, comforting fairytale narrator with rhythmic cadence and melodious storytelling.',
+    dialogueTone: 'Polite, sweet, whimsical storybook dialogue',
+    soundEffectsCue: 'Delicate storybook cues like [TWINKLE!], [RUSTLE!], [POP!], [TIP-TOE!]',
+    characterArtRule: 'Classic 2D hand-drawn cel animation art, Beatrix Potter and classic fairytale illustration, clean ink contours, soft watercolor textures, expressive gentle faces',
+    characterNegRule: 'photorealistic, 3D CGI render, realistic fur, raytracing, dark, gritty, ugly, deformed',
+    sceneImageRule: '2D classic hand-drawn fairytale illustration, soft painterly background, rich warm storybook colors, whimsical storybook page atmosphere',
+    sceneNegRule: '3D CGI, render, photorealistic, harsh shadows, neon, deformed',
+    videoMotionRule: 'Smooth storybook page-turn panning, gentle 2D parallax camera motion, soft character tilts',
+    voiceSettings: {
+      pitch: 1.15,
+      rate: 0.98,
+      preferredVoiceGenders: ['female']
+    }
   },
   cinematic: {
+    id: 'cinematic',
     label: 'Cinematic Live Action',
     icon: 'ti-movie',
     desc: 'Photorealistic, 35mm film look, dramatic lighting and natural depth of field',
-    imageRule: 'Cinematic movie still, photorealistic, 35mm film photography, natural cinematic lighting, masterpiece',
-    negRule: 'cartoon, 3D render, anime, illustration, drawing, oversaturated, deformed, bad anatomy'
+    mood: 'Epic, suspenseful, dramatic, emotionally powerful',
+    targetAudience: 'General audience and film enthusiasts',
+    narratorPersona: 'Captivating cinematic film narrator with deep resonant voice, dramatic gravitas, and immersive pacing.',
+    dialogueTone: 'Realistic, grounded, emotionally charged dialogue with dramatic pauses',
+    soundEffectsCue: 'Cinematic atmospheric audio cues like [DEEP RUMBLE], [WIND HOWL], [ORCHESTRAL SWELL], [FOOTSTEPS]',
+    characterArtRule: 'Cinematic live-action film character portrait, photorealistic, natural skin/coat texture, 35mm portrait lens, dramatic rim lighting, natural eye reflections',
+    characterNegRule: 'cartoon, 3D CGI animation, pixar, anime, drawing, oversaturated, deformed, plastic',
+    sceneImageRule: 'Cinematic movie still, photorealistic, 35mm film photography, natural cinematic lighting, anamorphic lens, shallow depth of field, blockbuster masterpiece',
+    sceneNegRule: 'cartoon, 3D render, anime, illustration, saturated bright colors, plastic surfaces',
+    videoMotionRule: 'Steadicam tracking shot, cinematic anamorphic dolly zoom, slow majestic aerial pan, realistic motion blur',
+    voiceSettings: {
+      pitch: 0.92,
+      rate: 0.94,
+      preferredVoiceGenders: ['male', 'neutral']
+    }
   },
   anime: {
+    id: 'anime',
     label: 'Storybook & Anime',
     icon: 'ti-palette',
     desc: 'Hand-drawn anime aesthetic, painterly backgrounds, warm emotions',
-    imageRule: 'Studio Ghibli anime film still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, painterly background',
-    negRule: 'photorealistic, 3D CGI render, western cartoon, ugly, deformed, text'
+    mood: 'Emotional, wondrous, nostalgic, magical and inspiring',
+    targetAudience: 'All ages, anime and fantasy animation fans',
+    narratorPersona: 'Warm, poetic, emotionally expressive anime narrator conveying depth of feeling and magical adventure.',
+    dialogueTone: 'Passionate, heartfelt, earnest anime dialogue with emotional conviction',
+    soundEffectsCue: 'Anime sound cues like [SPARKLE-CHIME], [WHOOSH], [WIND CHIME], [HEARTBEAT]',
+    characterArtRule: 'Studio Ghibli and Makoto Shinkai inspired high quality anime character art, beautiful expressive anime eyes, detailed hand-drawn cel-shaded features, soft hair rendering',
+    characterNegRule: 'western cartoon, photorealistic, 3D CGI render, ugly, deformed, text',
+    sceneImageRule: 'Studio Ghibli anime film still, gorgeous hand-painted scenery, lush painted foliage, vibrant emotional lighting, Makoto Shinkai sky',
+    sceneNegRule: 'photorealistic, western 3D render, dark, muddy, deformed',
+    videoMotionRule: 'Anime cinematography, dynamic wind-blown camera moves, sweeping sky pan, emotional character close-up tracking',
+    voiceSettings: {
+      pitch: 1.12,
+      rate: 1.02,
+      preferredVoiceGenders: ['female', 'neutral']
+    }
   },
   cyberpunk: {
+    id: 'cyberpunk',
     label: 'Sci-Fi / Cyberpunk',
     icon: 'ti-cpu',
     desc: 'Futuristic, neon-lit, volumetric smoke, high-tech environments',
-    imageRule: 'Cinematic sci-fi scene, futuristic cyberpunk aesthetic, neon glow, atmospheric lighting',
-    negRule: 'cartoon, hand-drawn, blurry, distorted'
+    mood: 'Futuristic, gritty, intense, pulse-pounding techno thriller',
+    targetAudience: 'Sci-fi, gamer, and cyberpunk enthusiasts',
+    narratorPersona: 'Slick, razor-sharp cyber-thriller narrator with high-tech intensity, cool detachment, and urgent edge.',
+    dialogueTone: 'Sharp, slang-infused tech dialogue, urgent and snappy',
+    soundEffectsCue: 'High-tech audio cues like [DIGITAL GLITCH], [NEON HUM], [SERVO MOTOR REVS], [SYNTH BEAT]',
+    characterArtRule: 'Cyberpunk sci-fi character portrait, cybernetic implants, neon-accented futuristic clothing, reflective surfaces, volumetric neon studio lighting',
+    characterNegRule: 'cartoon, fairytale, soft, blurry, pastel, fantasy medieval, deformed',
+    sceneImageRule: 'Cinematic sci-fi scene, futuristic cyberpunk cityscape or tech interior, neon reflections on wet asphalt, volumetric smoke, blue and magenta lighting',
+    sceneNegRule: 'cartoon, sunny daylight, nature forest, fairytale, hand-drawn',
+    videoMotionRule: 'Fast drone fly-through, Dutch angle tracking, rapid neon light streak passes, high-speed camera whip',
+    voiceSettings: {
+      pitch: 0.96,
+      rate: 1.05,
+      preferredVoiceGenders: ['neutral', 'male']
+    }
   },
   claymation: {
+    id: 'claymation',
     label: 'Claymation & Stop Motion',
     icon: 'ti-ball-tennis',
     desc: 'Textured, tactile, handcrafted character models and whimsical sets',
-    imageRule: 'Aardman claymation stop-motion animation film still, handcrafted sculpted clay character, tactile studio lighting',
-    negRule: 'photorealistic, 2D drawing, CGI, distorted'
+    mood: 'Whimsical, eccentric, charming, quirky handcrafted comedy',
+    targetAudience: 'All ages, fans of quirky tactile stop-motion stories',
+    narratorPersona: 'Quirky, eccentric, British-style stop-motion narrator with dry wit, warm chuckle, and delightful charm.',
+    dialogueTone: 'Quirky, witty, eccentric banter with comedic timing',
+    soundEffectsCue: 'Tactile sound cues like [SQUISH!], [PLOP!], [CLICK-CLACK!], [SQUEAK!]',
+    characterArtRule: 'Handcrafted plasticine clay character model, stop-motion animation, Aardman Wallace & Gromit style, subtle thumbprint textures, tactile sculpted clay features',
+    characterNegRule: 'photorealistic live animal, 2D drawing, smooth digital CGI, anime, deformed',
+    sceneImageRule: 'Stop-motion claymation miniature film set, physical handcrafted studio miniature props, macro photography depth of field, warm tungsten lighting',
+    sceneNegRule: 'photorealistic live action, 2D digital art, anime, CGI',
+    videoMotionRule: 'Charming stop-motion camera jitter, stepped-frame tracking, quirky macro push-in',
+    voiceSettings: {
+      pitch: 1.05,
+      rate: 0.95,
+      preferredVoiceGenders: ['male', 'neutral']
+    }
   },
   vintage: {
+    id: 'vintage',
     label: 'Vintage 1960s Film',
     icon: 'ti-camera',
     desc: 'Warm grain, technicolor hues, nostalgic retro cinema tone',
-    imageRule: 'Vintage 1960s Technicolor film still, warm authentic film grain, classic cinema palette',
-    negRule: 'modern digital render, 3D CGI, anime, cartoon'
+    mood: 'Nostalgic, romantic, heartwarming, golden-age retro cinema',
+    targetAudience: 'Classic film and vintage storytelling lovers',
+    narratorPersona: 'Classic mid-century cinematic golden-age narrator with warm mid-Atlantic cadence and nostalgic warmth.',
+    dialogueTone: 'Classic mid-century dialogue, theatrical, charming, witty',
+    soundEffectsCue: 'Vintage optical audio cues like [CRACKLE], [ORCHESTRAL BRASS FANFARE], [VINTAGE HORN]',
+    characterArtRule: '1960s vintage Technicolor cinema character, authentic retro wardrobe and styling, warm glowing three-point lighting, classic Hollywood portrait',
+    characterNegRule: 'modern 3D CGI, digital render, neon, anime, modern technology',
+    sceneImageRule: 'Vintage 1960s Technicolor widescreen film still, authentic rich warm color grading, soft vintage optical lens flare, authentic film grain',
+    sceneNegRule: 'modern CGI, digital sharpness, anime, cartoon',
+    videoMotionRule: 'Classic studio crane boom, smooth mechanical dolly track, vintage Hollywood camera pacing',
+    voiceSettings: {
+      pitch: 0.98,
+      rate: 0.96,
+      preferredVoiceGenders: ['neutral', 'male']
+    }
   }
 };
+
+function getActiveTemplate() {
+  return STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
+}
 
 const STUDIO_DURATIONS = [
   { value: '15s',  label: '15 sec', scenes: 1 },
@@ -1497,40 +1599,47 @@ async function generateStudioScript() {
   studioLog('Starting script generation...');
   render();
 
-  const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
-  const isKids = S.studioStyle === 'kids3d' || S.studioStyle === 'storybook' || S.studioStyle === 'anime' || S.studioDuration === '420s' || S.studioTopic.toLowerCase().includes('kids');
+  const tpl = getActiveTemplate();
 
   const targetDurationDesc = S.studioDuration === 'custom'
     ? `${numScenes * 25} seconds (${numScenes} custom scenes)`
     : (S.studioDuration === '420s' ? '7 minutes full episodic special' : S.studioDuration.replace('s',' seconds'));
 
-  const prompt = `You are a world-class children's storyteller, animation director, and screenwriter specializing in Pixar and Disney-quality animated videos.
-Create a detailed, extremely engaging, and captivating scene-by-scene script.
+  const prompt = `You are a master storyteller, visual director, and screenwriter.
+ROLE & PERSONA: ${tpl.narratorPersona}
+OVERALL STORY MOOD: ${tpl.mood}
+TARGET AUDIENCE: ${tpl.targetAudience}
 
 STORY CONCEPT: "${S.studioTopic.trim()}"
-VISUAL STYLE: ${styleInfo.label} — ${styleInfo.desc}
+GENRE / VISUAL STYLE: ${tpl.label} — ${tpl.desc}
 TARGET DURATION: ${targetDurationDesc}
 NUMBER OF SCENES: exactly ${numScenes}
 ASPECT RATIO: ${S.studioAspect}
-${isKids ? 'TARGET AUDIENCE: 5 to 8 years old kids. Tone must be lively, funny, colorful, full of laughter and wonder. Include comical physical gags, entertaining sound effect cues [BOING!], [ZOOM!], [CRUNCH!], [SNORE!], enthusiastic narrator voice, relatable character dialogue, suspenseful twists, and an empowering moral lesson (being clever, disciplined, humble and kind).' : ''}
+
+STYLE DIRECTIVES:
+- Visual Art Style: ${tpl.characterArtRule}
+- Scene World & Lighting: ${tpl.sceneImageRule}
+- Camera & Motion: ${tpl.videoMotionRule}
+- Dialogue Delivery: ${tpl.dialogueTone}
+- Sound Effect Aesthetic: ${tpl.soundEffectsCue}
 
 For EACH scene, provide:
 - "sceneNum": scene number (1 to ${numScenes})
-- "title": short snappy descriptive title (e.g. "The Overconfident Nap", "Toby's Secret Plan")
-- "description": 2-3 sentences describing what happens visually in the animated world
-- "environment": specific setting/location details (vibrant rolling green hills, golden carrot patches, finish line arch)
-- "mood": emotional tone (e.g. "playful", "tense", "hilarious", "triumphant")
-- "lighting": specific lighting setup (e.g. "bright cheerful morning sunlight", "sparkling golden hour rays")
-- "camera": camera movement and lens (e.g. "wide sweeping crane shot", "close-up tracking shot")
-- "narration": 1-2 cheerful, lively spoken sentences for the voiceover narrator suitable for children aged 5-8
-- "dialogue": snappy, funny character spoken line with speaker name (e.g. "Hare: 'Eat my dust, slowpoke!'")
-- "soundEffect": comical sound cue like "[ZOOM!]", "[BOING!]", "[CRUNCH CRUNCH!]", "[WHEEL SPIN!]"
+- "title": short snappy descriptive title matching the story mood
+- "description": 2-3 sentences describing what happens visually in this scene
+- "environment": setting and location details reflecting the style world
+- "mood": scene emotional beat aligning with ${tpl.mood}
+- "lighting": lighting and atmosphere matching ${tpl.label}
+- "camera": camera movement matching ${tpl.videoMotionRule}
+- "narration": 1-2 spoken sentences for the voiceover narrator, strictly adhering to the persona: "${tpl.narratorPersona}"
+- "dialogue": character dialogue spoken line adhering to tone: "${tpl.dialogueTone}"
+- "soundEffect": sound cue adhering to: "${tpl.soundEffectsCue}"
 - "characters": array of character names appearing in this scene
 - "duration": approximate seconds for this scene (total summing up to target duration)
 
 Also provide:
-- "mainCharacter": a detailed physical description of the primary characters (e.g. "Toby: a determined little green tortoise with a polished jade shell and friendly amber eyes; Harry: a lanky brown hare with tall floppy ears and a proud smirk")
-- "narrator": 2-3 sentence inspiring introduction and moral takeaway for the overall video
+- "mainCharacter": physical description of primary characters in accordance with: ${tpl.characterArtRule}
+- "narrator": 2-3 sentence inspiring introduction and moral takeaway for the overall video matching ${tpl.narratorPersona}
 
 Return ONLY valid JSON:
 {
@@ -1864,15 +1973,16 @@ function getCharacterVisualTraits(c, compact = false) {
 
 function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
   const modelId = targetModel || S.activeImageModel || 'flux';
+  const tpl = getActiveTemplate();
   const promptData = S.studioPrompts?.[idx];
   const sceneData = S.studioScript?.scenes?.[idx];
   const sceneChars = (assignedChars && assignedChars.length > 0) ? assignedChars : (S.studioCharacters?.length ? [S.studioCharacters[0]] : []);
   const isMultiChar = sceneChars.length > 1;
 
-  let negPrompt = 'photorealistic, realistic fur, whiskers, wildlife photo, real animal photography, close up face, dark, gritty, two monkeys, duplicate characters, fused bodies, bad anatomy, claymation, playdough';
+  let negPrompt = `${tpl.sceneNegRule}, duplicate characters, fused bodies, bad anatomy, distorted faces, missing limbs`;
 
   const rawEnv = sceneData?.environment || sceneData?.location || '';
-  const cleanEnv = rawEnv ? sanitizeScenePromptText(rawEnv).substring(0, 40) : 'sunny lush fairytale jungle clearing';
+  const cleanEnv = rawEnv ? sanitizeScenePromptText(rawEnv).substring(0, 45) : 'fairytale landscape';
 
   let prompt = '';
   let refImage = '';
@@ -1882,27 +1992,27 @@ function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
       const lower = (c.name || '').toLowerCase();
       let pos = '';
       if (lower.includes('owl') || lower.includes('bird')) {
-        pos = 'perched on a tree branch above';
+        pos = 'perched on a branch above';
       } else if (lower.includes('ella') || lower.includes('elephant')) {
         pos = 'standing gently in center';
       } else if (i === 0) {
-        pos = 'sitting on the left';
+        pos = 'on the left';
       } else if (i === 1) {
-        pos = 'sitting on the right';
+        pos = 'on the right';
       } else {
         pos = 'standing nearby';
       }
       return `${pos}: ${c.name} (${getCharacterVisualTraits(c, true)})`;
     }).join('; and ');
 
-    prompt = `Wide establishing shot, 3D Disney Pixar animation film still, bright sunny daylight. Exactly ${sceneChars.length} distinct different cartoon animal friends together in a ${cleanEnv}: ${spatialClauses}. All ${sceneChars.length} distinct characters clearly visible side by side with visible physical space, smooth stylized CGI, NOT duplicate characters, NOT fused bodies, NOT realistic fur.`;
+    prompt = `Wide establishing shot, ${tpl.sceneImageRule}. Exactly ${sceneChars.length} distinct different characters together in a ${cleanEnv}: ${spatialClauses}. All ${sceneChars.length} distinct characters clearly visible with physical space between them, ${tpl.characterArtRule}. NOT duplicate characters, NOT fused bodies.`;
 
-    negPrompt += ', solo, single character only, missing character, missing elephant, missing owl, missing lion, missing monkey, duplicate characters';
+    negPrompt += ', solo, single character only, missing character, duplicate characters';
     refImage = '';
   } else {
     const c = sceneChars[0] || { name: 'Character' };
     const traits = getCharacterVisualTraits(c, false);
-    prompt = `3D Disney Pixar animated film still, bright sunny daylight. Full body wide shot of cute stylized cartoon character ${c.name} (${traits}) in a ${cleanEnv}. Oversized cute cartoon head, huge round sparkling cartoon eyes, sweet smile, smooth vinyl cartoon surfaces. Vibrant colorful cartoon art, NOT realistic fur, NOT wildlife photography, NOT whiskers.`;
+    prompt = `Wide cinematic shot, ${tpl.sceneImageRule}. Character ${c.name} (${traits}) in a ${cleanEnv}. ${tpl.characterArtRule}.`;
     refImage = getCharacterReferenceUrl(c);
   }
 
@@ -2353,26 +2463,9 @@ function detectStoryCharacters() {
 function generateSampleCharacterPrompt(charName = '', charDesc = '') {
   const name = (charName || S.charNameInput || 'Hero Character').trim();
   const desc = (charDesc || S.charRoleInput || (S.studioScript?.mainCharacter || S.studioTopic || 'animated protagonist')).trim();
-  const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
-  const styleLabel = styleInfo.label;
-  const styleDesc = styleInfo.desc || '';
+  const tpl = getActiveTemplate();
 
-  const scenes = S.studioScript?.scenes || [];
-  const envContext = scenes[0]?.environment || 'vibrant cinematic world';
-
-  let prompt = `Character portrait of ${name}, ${desc}. ${styleLabel} aesthetic (${styleDesc}), 3D Disney Pixar animated feature film concept art, expressive friendly face, charming eyes with vibrant specular highlights, detailed clothing and textures, soft studio rim lighting, volumetric soft shadows, 8k render, octane render, clean studio background, centered character portrait.`;
-
-  if (S.studioStyle === 'anime') {
-    prompt = `Character portrait concept art of ${name}, ${desc}. Studio Ghibli and Makoto Shinkai inspired high quality anime art style, vibrant colors, expressive eyes, hand-drawn anime aesthetic, detailed hair, clean studio lighting, 8k masterpiece.`;
-  } else if (S.studioStyle === 'clay') {
-    prompt = `Character portrait model of ${name}, ${desc}. Stop-motion claymation and plasticine style, Aardman Wallace and Gromit aesthetic, tactile clay textures with subtle fingerprint impressions, warm studio lighting, 8k macro photography render.`;
-  } else if (S.studioStyle === 'storybook') {
-    prompt = `Classic storybook watercolor illustration of ${name}, ${desc}. Beatrix Potter and vintage fairytale book illustration, soft pencil outlines, delicate watercolor washes, warm paper texture, whimsical, charming, high resolution.`;
-  } else if (S.studioStyle === 'retro') {
-    prompt = `Retro 1930s rubber hose cartoon character illustration of ${name}, ${desc}. Vintage classic animation style, Cuphead and early Fleischer studio aesthetic, bold ink lines, monochrome or vintage Technicolor, film grain, charming vintage cartoon.`;
-  }
-
-  return prompt;
+  return `Character concept portrait of ${name}, ${desc}. ${tpl.characterArtRule}. Clean centered character framing, isolated studio background, masterpiece quality.`;
 }
 
 function handleSelectScriptChar(name) {
@@ -3270,9 +3363,23 @@ function speakSceneNarration(text) {
   if (S.studioPlayerAudioMuted || !('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
   if (!text) return;
+  const tpl = getActiveTemplate();
+  const v = tpl.voiceSettings || { pitch: 1.15, rate: 1.05 };
   const utter = new SpeechSynthesisUtterance(text);
-  utter.pitch = 1.15;
-  utter.rate = 1.05;
+  utter.pitch = v.pitch || 1.15;
+  utter.rate = v.rate || 1.05;
+
+  const voices = window.speechSynthesis.getVoices();
+  if (voices && voices.length && v.preferredVoiceGenders) {
+    const isFemale = v.preferredVoiceGenders.includes('female');
+    const isMale = v.preferredVoiceGenders.includes('male');
+    const matched = voices.find(vc => vc.lang.startsWith('en') && (
+      (isFemale && (vc.name.includes('Female') || vc.name.includes('Samantha') || vc.name.includes('Victoria') || vc.name.includes('Karen') || vc.name.includes('Zira') || vc.name.includes('Google UK English Female'))) ||
+      (isMale && (vc.name.includes('Male') || vc.name.includes('Daniel') || vc.name.includes('David') || vc.name.includes('George') || vc.name.includes('Google UK English Male')))
+    ));
+    if (matched) utter.voice = matched;
+  }
+
   window.speechSynthesis.speak(utter);
 }
 
