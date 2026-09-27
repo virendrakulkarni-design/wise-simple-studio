@@ -1793,6 +1793,11 @@ function sanitizeScenePromptText(text) {
 
 function getCharacterVisualTraits(c, compact = false) {
   if (!c) return '';
+  // If Gemini Vision has extracted deterministic DNA from the character sheet, prioritize it
+  if (c.visualDNA && typeof c.visualDNA === 'string' && c.visualDNA.length > 10) {
+    return compact ? c.visualDNA.substring(0, 100) : c.visualDNA;
+  }
+  if (!c) return '';
   const desc = (c.description || '')
     .replace(/uploaded\s+character:?\s*[^,;()]+(\([^)]+\))?/gi, '')
     .replace(/character\s*sheet|expressions?(\s*grid)?|model\s*sheet|turnaround|palette|color\s*swatches|multi-?panel|tiled/gi, '')
@@ -2146,6 +2151,95 @@ function deleteArchivedCharacter(charId) {
   render();
 }
 
+
+// ── Approach A: Multimodal Vision DNA Character Analysis Engine ──────────────
+async function analyzeCharacterWithGeminiVision(charId) {
+  const char = (S.studioCharacters || []).find(c => c.id === charId);
+  if (!char || !char.url) return;
+
+  if (!S.googleApiKey) {
+    studioLog('⚠️ Google API Key required to analyze character with Gemini Vision.');
+    openGoogleKeyPrompt();
+    if (!S.googleApiKey) return;
+  }
+
+  studioLog(`🔍 Analyzing character sheet for "${char.name}" with Gemini Vision...`);
+  char.analyzingVision = true;
+  render();
+
+  try {
+    let base64Data = '';
+    let mimeType = 'image/png';
+
+    if (char.url.startsWith('data:')) {
+      const match = char.url.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      }
+    } else {
+      const res = await fetch(char.url);
+      const blob = await res.blob();
+      mimeType = blob.type || 'image/png';
+      base64Data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    const prompt = `You are an expert animation art director. Analyze this character sheet/portrait.
+Extract the exact, immutable "Visual DNA" of this character into a single concise paragraph (under 60 words) for 3D animation image generation.
+Must specify:
+1. Exact species and character type
+2. Color palette (exact color of coat, skin, eyes, clothing, accessories)
+3. Head & facial features (head shape, eye style, snout/ears, expression)
+4. Distinct body shapes/proportions (head-to-body ratio, tail, paws/limbs)
+5. Signature costume/accessories (hat, vest, bandana, glasses, etc.)
+6. Art style: 3D Disney Pixar stylized CGI, smooth vinyl cartoon surfaces, NOT realistic fur, NOT wildlife photography.
+Return ONLY the concise descriptive prompt paragraph, with no extra conversational text.`;
+
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${S.googleApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64Data
+              }
+            }
+          ]
+        }]
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const extractedDNA = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (extractedDNA) {
+        char.visualDNA = extractedDNA;
+        char.description = extractedDNA;
+        studioLog(`✓ Gemini Vision locked Visual DNA for "${char.name}"!`);
+      }
+    } else {
+      const err = await res.json();
+      throw new Error(err.error?.message || 'Gemini Vision API request failed');
+    }
+  } catch (err) {
+    studioLog(`⚠️ Gemini Vision analysis failed: ${err.message}`);
+    console.error('Vision analysis error:', err);
+  } finally {
+    char.analyzingVision = false;
+    saveStudioState();
+    render();
+  }
+}
+
 async function handleCharacterUpload(event) {
   const files = event.target?.files;
   if (!files || !files.length) return;
@@ -2172,15 +2266,19 @@ async function handleCharacterUpload(event) {
 
     const initialTraits = getCharacterVisualTraits({ name: charName });
     if (!S.studioCharacters) S.studioCharacters = [];
-    S.studioCharacters.push({
+    const newCharObj = {
       id: charId,
       name: charName,
       url: check.dataUrl,
       description: initialTraits,
       prompt: generateSampleCharacterPrompt(charName, initialTraits)
-    });
+    };
+    S.studioCharacters.push(newCharObj);
     accepted++;
     studioLog(`✓ Accepted high-quality character image "${charName}" (${check.width}x${check.height}px)`);
+    if (S.googleApiKey) {
+      setTimeout(() => analyzeCharacterWithGeminiVision(charId), 100);
+    }
   }
 
   if (accepted > 0) {
@@ -4244,14 +4342,20 @@ function buildStudio() {
                   <button class="studio-char-delete-btn" onclick="deleteStudioCharacter('${c.id}')" title="Delete character"><i class="ti ti-trash"></i></button>
                 </div>
                 <div style="padding:10px">
-                  <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${c.name || 'Character ' + (i+1)}</div>
-                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${renderMarkdown((c.description || '').substring(0, 95))}</div>
-                  <div style="display:flex;gap:6px;margin-top:8px">
-                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:var(--brand)" onclick="editCharacterPrompt('${c.id}')" title="Load prompt and re-generate this character">
-                      <i class="ti ti-edit"></i> Edit Prompt
+                  <div style="font-size:13px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;justify-content:space-between">
+                    <span>${c.name || 'Character ' + (i+1)}</span>
+                    ${c.visualDNA ? `<span style="font-size:9px;background:rgba(34,197,94,0.15);color:var(--text-success);padding:1px 6px;border-radius:6px;font-weight:700">✓ DNA Locked</span>` : ''}
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${renderMarkdown((c.visualDNA || c.description || '').substring(0, 95))}</div>
+                  <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
+                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:#a855f7" onclick="analyzeCharacterWithGeminiVision('${c.id}')" title="Analyze character sheet with Gemini Vision to lock identity">
+                      <i class="ti ${c.analyzingVision ? 'ti-loader studio-spin' : 'ti-sparkles'}"></i> ${c.visualDNA ? 'Re-lock DNA' : 'Vision Lock'}
                     </button>
-                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px" onclick="assignCharacterToAllScenes('${c.id}')" title="Assign this character to all scenes">
-                      <i class="ti ti-check-all"></i> Assign All
+                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:var(--brand)" onclick="editCharacterPrompt('${c.id}')" title="Load prompt and re-generate this character">
+                      <i class="ti ti-edit"></i> Edit
+                    </button>
+                    <button class="btn-ghost" style="font-size:11px;padding:4px 6px" onclick="assignCharacterToAllScenes('${c.id}')" title="Assign this character to all scenes">
+                      <i class="ti ti-check-all"></i> All
                     </button>
                   </div>
                 </div>
@@ -4831,7 +4935,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.5</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.8.0-vision</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
