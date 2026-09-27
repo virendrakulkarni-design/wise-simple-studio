@@ -1805,41 +1805,41 @@ function getCharacterVisualTraits(c, compact = false) {
   const raw = [desc, promptPart].filter(Boolean).join(', ');
   const lower = ((c.name || '') + ' ' + raw).toLowerCase();
 
-  // Multi-character compact mode: explicit camera orientation, anatomical landmarks, and relative scale
+  // Multi-character compact mode: explicit camera orientation, distinct species, and relative scale
   if (compact) {
     if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
-      return 'small cute golden baby lion cub facing forward toward camera in 3/4 view, small brown tuft on head, cream muzzle, big expressive round eyes and sweet smile';
+      return 'cute small golden cartoon lion cub with round ears and sweet smile';
     }
     if (lower.includes('ella') || lower.includes('elephant')) {
-      return 'friendly sky-blue baby elephant, long curved trunk raised happily, giant floppy elephant ears with soft pink inside, big sparkling eyes and smiling face';
+      return 'friendly sky-blue baby elephant with trunk raised and floppy pink-lined ears';
     }
     if (lower.includes('owl')) {
-      return 'small brown feathered owl bird with wings and beak, perched high on a leafy tree branch above, big golden eyes';
+      return 'small brown cartoon owl perched on tree branch above with big golden eyes';
     }
     if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
-      return 'playful little brown monkey with peach face, holding a yellow banana, smiling face';
+      return 'playful little brown cartoon monkey holding yellow banana';
     }
     if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
-      return 'cute green tortoise with glossy jade shell and orange bandana, big emerald eyes';
+      return 'cute green cartoon tortoise with jade shell and orange bandana';
     }
     if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
-      return 'athletic golden hare rabbit wearing red racing jersey #1, toothy confident smirk';
+      return 'athletic golden cartoon rabbit wearing red jersey';
     }
-    return `cute cartoon ${c.name} facing forward toward camera with expressive eyes and smile`;
+    return `cute cartoon ${c.name} with smiling face`;
   }
 
-  // Single character detailed traits (species and visual cues only, anti-photorealistic fur)
+  // Single character detailed traits: strong 3D Pixar cartoon attributes, zero realistic fur/whiskers
   if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
-    return 'cute golden baby lion cub facing forward toward camera in 3/4 view, smooth stylized coat, small brown tuft on head, cream muzzle and belly, big round sparkling cartoon eyes, sweet innocent smile, NOT realistic fur';
+    return 'cute stylized baby lion cartoon character, smooth golden cartoon coat, small brown tuft on head, cream muzzle, big round sparkling cartoon eyes, adorable smile';
   }
   if (lower.includes('ella') || lower.includes('elephant')) {
-    return 'friendly sky-blue baby elephant facing camera, distinct long curved trunk raised happily, large floppy ears with soft pink inside, big sparkling cartoon eyes, sweet friendly smile';
+    return 'friendly sky-blue baby elephant cartoon character, long curved trunk raised happily, large floppy ears with soft pink inside, big sparkling eyes, sweet friendly smile';
   }
   if (lower.includes('owl')) {
-    return 'small round brown feathered owl bird perched on a leafy tree branch, cream heart-shaped face plumage, big luminous golden eyes, wise gentle expression';
+    return 'small brown feathered cartoon owl bird perched on a branch, cream heart-shaped face, big luminous golden eyes, gentle expression';
   }
   if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
-    return 'playful little brown monkey, peach face and tummy, round ears, long tail, holding a yellow banana, cheerful cartoon grin';
+    return 'playful little brown cartoon monkey, peach face, round ears, long tail, holding a yellow banana, cheerful cartoon grin';
   }
   if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
     return 'cute green tortoise, glossy jade-green dome shell, bright orange neck bandana scarf, big emerald eyes, friendly smile';
@@ -1849,9 +1849,9 @@ function getCharacterVisualTraits(c, compact = false) {
   }
 
   if (raw && raw.length > 5 && !raw.startsWith('(')) {
-    return `cute cartoon character facing forward toward camera, ${raw.substring(0, 100)}`;
+    return `cute cartoon character, ${raw.substring(0, 80)}`;
   }
-  return `cute cartoon ${c.name} facing forward toward camera, big expressive cartoon eyes, friendly warm smile`;
+  return `cute cartoon ${c.name}, big expressive cartoon eyes, friendly warm smile`;
 }
 
 function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
@@ -1861,78 +1861,46 @@ function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
   const sceneChars = (assignedChars && assignedChars.length > 0) ? assignedChars : (S.studioCharacters?.length ? [S.studioCharacters[0]] : []);
   const isMultiChar = sceneChars.length > 1;
 
-  // Unified style anchor across all scenes ensures zero style disconnect (Point 7 & Point 5)
-  const STYLE_ANCHOR = '3D Disney Pixar animation film still, high key bright sunny daylight, smooth stylized CGI, clean 3D character models, vibrant cheerful colors, NOT realistic fur strands, NOT real animal photography';
-  let negPrompt = 'photorealistic, realistic fur, detailed hair strands, fur texture, hyperrealistic fur, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters, claymation, playdough, flat drawing';
+  let negPrompt = 'photorealistic, realistic fur, whiskers, wildlife photo, real animal photography, close up face, dark, gritty, two monkeys, duplicate characters, fused bodies, bad anatomy, claymation, playdough';
 
-  const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
-  const cleanAction = sanitizeScenePromptText(rawAction);
-
-  // Environmental storytelling cue (Point 8)
   const rawEnv = sceneData?.environment || sceneData?.location || '';
-  const cleanEnv = rawEnv
-    ? sanitizeScenePromptText(rawEnv).substring(0, 45)
-    : 'lush sunny fairytale jungle clearing with green canopy trees and colorful flowers';
+  const cleanEnv = rawEnv ? sanitizeScenePromptText(rawEnv).substring(0, 40) : 'sunny lush fairytale jungle clearing';
 
   let prompt = '';
   let refImage = '';
-  const allNames = sceneChars.map(c => c.name).join(' & ');
 
   if (isMultiChar) {
-    // Spatial positioning with vertical staging and relative scale (Points 2, 3, 4, 9)
     const spatialClauses = sceneChars.map((c, i) => {
       const lower = (c.name || '').toLowerCase();
       let pos = '';
       if (lower.includes('owl') || lower.includes('bird')) {
-        pos = 'Perched on leafy tree branch above';
+        pos = 'perched on a tree branch above';
       } else if (lower.includes('ella') || lower.includes('elephant')) {
-        pos = 'Standing in midground center';
+        pos = 'standing gently in center';
       } else if (i === 0) {
-        pos = 'In foreground left';
+        pos = 'sitting on the left';
       } else if (i === 1) {
-        pos = 'On the right';
+        pos = 'sitting on the right';
       } else {
-        pos = 'Nearby';
+        pos = 'standing nearby';
       }
       return `${pos}: ${c.name} (${getCharacterVisualTraits(c, true)})`;
-    }).join('. ');
+    }).join('; and ');
 
-    const stagingRule = 'Staging: separated characters side by side with visible physical space, elephant larger than small cub, all facing camera with happy faces, NOT fused bodies.';
+    prompt = `Wide establishing shot, 3D Disney Pixar animation film still, bright sunny daylight. Exactly ${sceneChars.length} distinct different cartoon animal friends together in a ${cleanEnv}: ${spatialClauses}. All ${sceneChars.length} distinct characters clearly visible side by side with visible physical space, smooth stylized CGI, NOT duplicate characters, NOT fused bodies, NOT realistic fur.`;
 
-    if (modelId === 'flux') {
-      prompt = `${STYLE_ANCHOR}. Setting: ${cleanEnv}. Characters: ${spatialClauses}. ${stagingRule}`;
-    } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
-      const shortList = sceneChars.map(c => `${c.name}: ${getCharacterVisualTraits(c, true)}`).join(', ');
-      prompt = `${STYLE_ANCHOR}. ${allNames} together: ${shortList}. Setting: ${cleanEnv}. Clean cartoon lines.`;
-    } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
-      prompt = `${STYLE_ANCHOR}. Setting: ${cleanEnv}. Scene: ${cleanAction.substring(0, 80)}. Characters: ${spatialClauses}. Cinematic wide shot.`;
-    } else {
-      prompt = `${STYLE_ANCHOR}. Animated scene: ${cleanAction ? cleanAction.substring(0, 80) + '. ' : ''}Setting: ${cleanEnv}. Characters: ${spatialClauses}. All characters visible in full view.`;
-    }
-
-    negPrompt += ', single character only, solo, missing characters, missing owl, duplicate characters, fused body, merged characters, chimera';
-    refImage = ''; // Never pass single-character reference to multi-character scene to avoid visual takeover
+    negPrompt += ', solo, single character only, missing character, missing elephant, missing owl, missing lion, missing monkey, duplicate characters';
+    refImage = '';
   } else {
-    // Single character scene
-    const c = sceneChars[0];
+    const c = sceneChars[0] || { name: 'Character' };
     const traits = getCharacterVisualTraits(c, false);
-
-    if (modelId === 'flux') {
-      prompt = `${STYLE_ANCHOR}. Main character: ${c.name} (${traits}). Action: ${cleanAction ? cleanAction.substring(0, 90) + '.' : ''} Setting: ${cleanEnv}. Clean cartoon outlines, warm lighting, storybook illustration.`;
-    } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
-      prompt = `${STYLE_ANCHOR}, ${c.name} (${traits}), ${cleanAction.substring(0, 70)}, setting: ${cleanEnv}, cartoon cel animation`;
-    } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
-      prompt = `${STYLE_ANCHOR}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 90)}. Setting: ${cleanEnv}. Studio animated movie still.`;
-    } else {
-      prompt = `${STYLE_ANCHOR}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 90)}. Setting: ${cleanEnv}. Vibrant cartoon animation still, clean outlines.`;
-    }
-
+    prompt = `3D Disney Pixar animated film still, bright sunny daylight. Full body wide shot of cute stylized cartoon character ${c.name} (${traits}) in a ${cleanEnv}. Oversized cute cartoon head, huge round sparkling cartoon eyes, sweet smile, smooth vinyl cartoon surfaces. Vibrant colorful cartoon art, NOT realistic fur, NOT wildlife photography, NOT whiskers.`;
     refImage = getCharacterReferenceUrl(c);
   }
 
-  // Ensure prompt stays within ~460 char budget to prevent URL overflow & Pollinations HTTP 500
-  if (prompt.length > 460) {
-    prompt = prompt.substring(0, 460);
+  // Ensure prompt stays within 720 characters
+  if (prompt.length > 720) {
+    prompt = prompt.substring(0, 720);
   }
 
   return { sceneChars, prompt, negPrompt, refImage };
@@ -2418,7 +2386,7 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          instances: [{ prompt: prompt.substring(0, 480) }],
+          instances: [{ prompt: prompt.substring(0, 720) }],
           parameters: {
             sampleCount: 1,
             aspectRatio: aspect === '9:16' ? '9:16' : (aspect === '1:1' ? '1:1' : '16:9'),
@@ -2439,7 +2407,7 @@ async function fetchImage({ prompt, aspect = '16:9', seed, model = 'flux', negat
   const w = width || (aspect === '9:16' ? 576 : (aspect === '1:1' ? 768 : 1024));
   const h = height || (aspect === '9:16' ? 1024 : (aspect === '1:1' ? 768 : 576));
   const s = seed || Math.floor(Math.random() * 900000) + 100000;
-  const neg = negative ? `&negative=${encodeURIComponent(negative.substring(0, 140))}` : '';
+  const neg = negative ? `&negative=${encodeURIComponent(negative.substring(0, 120))}` : '';
   const imgParam = (image && typeof image === 'string' && image.startsWith('http')) ? `&image=${encodeURIComponent(image.substring(0, 250))}` : '';
   const modelAliases = {
     'nano-banana': 'flux',
@@ -2644,7 +2612,8 @@ async function generateStoryboardImage(idx) {
     let imageUrl = null;
 
     const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
-    const seed = (charBaseSeed + idx * 79) % 900000 + 100000;
+    // Fresh random seed on every generation/reroll ensures fresh variations instead of stale cache
+    const seed = Math.floor(Math.random() * 900000) + 100000;
 
     imageUrl = await fetchImage({
       prompt: scenePrompt,
@@ -2671,8 +2640,11 @@ async function generateStoryboardImage(idx) {
       } catch (_) {}
     }
 
+    // Bust browser image cache by attaching unique timestamp parameter
+    const bustUrl = (imageUrl && !imageUrl.startsWith('data:')) ? `${imageUrl}${imageUrl.includes('?') ? '&' : '?'}_t=${Date.now()}` : imageUrl;
     S.studioStoryboard[idx].status = 'done';
-    S.studioStoryboard[idx].imageUrl = imageUrl;
+    S.studioStoryboard[idx].imageUrl = bustUrl;
+    S.studioStoryboard[idx].seed = seed;
     S.studioStoryboard[idx].error = null;
     studioLog(`✅ Storyboard frame ${idx + 1} generated successfully.`);
   } catch (e) {
@@ -2702,7 +2674,8 @@ async function generateAllStoryboards() {
     imageUrl: null,
     prompt: S.studioPrompts?.[i]?.veoPrompt || S.studioScript?.scenes?.[i]?.description || '',
     error: null,
-    approved: false
+    approved: false,
+    seed: Math.floor(Math.random() * 900000) + 100000
   }));
   studioLog('🎨 Starting batch storyboard generation...');
   render();
@@ -2744,7 +2717,12 @@ function unapproveStoryboardFrame(idx) {
 }
 
 async function rerollStoryboardFrame(idx) {
-  studioLog(`↺ Re-generateing storyboard frame ${idx + 1}...`);
+  studioLog(`↺ Re-generating storyboard frame ${idx + 1} with fresh variation...`);
+  if (S.studioStoryboard?.[idx]) {
+    S.studioStoryboard[idx].imageUrl = null;
+    S.studioStoryboard[idx].status = 'generating';
+    render();
+  }
   await generateStoryboardImage(idx);
 }
 
@@ -4853,7 +4831,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.4</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.5</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
