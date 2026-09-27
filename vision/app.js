@@ -113,20 +113,11 @@ function renderModelSelect() {
 
 const IMAGE_MODELS = [
   {
-    id: 'flux',
-    label: 'Flux.1 Schnell (Recommended / Pixar 3D Quality)',
-    shortLabel: 'Flux.1 (Recommended)',
-    badge: 'Free / SOTA',
-    desc: 'Black Forest Labs 12B distilled transformer. Unmatched character detail, vibrant Disney/Pixar 3D animation, and prompt following.',
-    engine: 'pollinations',
-    param: 'flux'
-  },
-  {
     id: 'google-flow',
-    label: 'Google Flow / Imagen 3 (Google AI Studio)',
-    shortLabel: 'Google Flow (Imagen 3)',
+    label: 'Google Flow / Imagen 3 (Recommended / DNA Locked)',
+    shortLabel: 'Google Flow (Recommended)',
     badge: 'Google AI / Key',
-    desc: 'Google DeepMind flagship Imagen 3 creative model. Exceptional photorealism and studio cinematography (Requires Google AI Studio Key).',
+    desc: 'Google DeepMind flagship Imagen 3 creative model. Matches extracted character DNA accurately without concept bleeding.',
     engine: 'google',
     param: 'imagen-3.0-generate-002'
   },
@@ -138,6 +129,15 @@ const IMAGE_MODELS = [
     desc: 'OpenAI multi-modal visual synthesis model. Highly expressive cartoon and character facial animation.',
     engine: 'pollinations',
     param: 'gpt-image'
+  },
+  {
+    id: 'flux',
+    label: 'Flux.1 Schnell (Fast Standard 3D)',
+    shortLabel: 'Flux.1',
+    badge: 'Free / SOTA',
+    desc: 'Black Forest Labs 12B distilled transformer. Fast stylized 3D rendering.',
+    engine: 'pollinations',
+    param: 'flux'
   },
   {
     id: 'z-image-turbo',
@@ -171,7 +171,7 @@ const IMAGE_MODELS = [
 function openGoogleKeyPrompt() {
   const currentKey = S.googleApiKey || '';
   const newKey = prompt(
-    'Enter your Google AI Studio / Gemini API Key (starts with AIza...):\n\n' +
+    'Enter your Google AI Studio API Key (starts with AIza...):\n\n' +
     'Get your free key at: https://aistudio.google.com/apikey\n\n' +
     'This activates Google Flow (Veo 2 AI Video & Imagen 3 visual generation).',
     currentKey
@@ -190,7 +190,7 @@ function openGoogleKeyPrompt() {
 }
 function setImageModel(modelId) {
   S.activeImageModel = modelId;
-  localStorage.setItem('active-image-model', modelId);
+  localStorage.setItem('vision-active-image-model', modelId);
   const found = IMAGE_MODELS.find(m => m.id === modelId);
   if (found) {
     studioLog(`🎨 Switched visual image model to: ${found.label}`);
@@ -382,7 +382,7 @@ const S = {
   googleDriveFolderUrl: localStorage.getItem('gdrive-folder-url') || 'https://drive.google.com/drive/folders/1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY?usp=sharing',
   availableModels: [...DEFAULT_GROQ_MODELS],
   activeModel: localStorage.getItem('active-model') || 'llama-3.3-70b-versatile',
-  activeImageModel: localStorage.getItem('active-image-model') || 'flux',
+  activeImageModel: localStorage.getItem('vision-active-image-model') || 'google-flow',
   activeVideoEngine: localStorage.getItem('active-video-engine') || 'nanobanana-motion',
   modelsLoading: false,
   showSetup: false,
@@ -2161,12 +2161,12 @@ async function analyzeCharacterWithGeminiVision(charId) {
   if (!char || !char.url) return;
 
   if (!S.googleApiKey) {
-    studioLog('⚠️ Google API Key required to analyze character with Gemini Vision.');
+    studioLog('⚠️ Google API Key required to analyze character with Multimodal Vision.');
     openGoogleKeyPrompt();
     if (!S.googleApiKey) return;
   }
 
-  studioLog(`🔍 Analyzing character sheet for "${char.name}" with Gemini Vision...`);
+  studioLog(`🔍 Analyzing character sheet for "${char.name}" with Multimodal Vision...`);
   char.analyzingVision = true;
   render();
 
@@ -2227,14 +2227,14 @@ Return ONLY the concise descriptive prompt paragraph, with no extra conversation
       if (extractedDNA) {
         char.visualDNA = extractedDNA;
         char.description = extractedDNA;
-        studioLog(`✓ Gemini Vision locked Visual DNA for "${char.name}"!`);
+        studioLog(`✓ Multimodal Vision locked Visual DNA for "${char.name}"!`);
       }
     } else {
       const err = await res.json();
-      throw new Error(err.error?.message || 'Gemini Vision API request failed');
+      throw new Error(err.error?.message || 'Multimodal Vision API request failed');
     }
   } catch (err) {
-    studioLog(`⚠️ Gemini Vision analysis failed: ${err.message}`);
+    studioLog(`⚠️ Multimodal Vision analysis failed: ${err.message}`);
     console.error('Vision analysis error:', err);
   } finally {
     char.analyzingVision = false;
@@ -4351,7 +4351,7 @@ function buildStudio() {
                   </div>
                   <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${renderMarkdown((c.visualDNA || c.description || '').substring(0, 95))}</div>
                   <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
-                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:#a855f7" onclick="analyzeCharacterWithGeminiVision('${c.id}')" title="Analyze character sheet with Gemini Vision to lock identity">
+                    <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:#a855f7" onclick="analyzeCharacterWithGeminiVision('${c.id}')" title="Analyze character sheet with Multimodal Vision to lock identity">
                       <i class="ti ${c.analyzingVision ? 'ti-loader studio-spin' : 'ti-sparkles'}"></i> ${c.visualDNA ? 'Re-lock DNA' : 'Vision Lock'}
                     </button>
                     <button class="btn-ghost" style="flex:1;font-size:11px;padding:4px 6px;color:var(--brand)" onclick="editCharacterPrompt('${c.id}')" title="Load prompt and re-generate this character">
@@ -4949,7 +4949,7 @@ function render() {
             <i class="ti ti-settings"></i> Setup & Keys
           </button>
           ${!S.googleApiKey ? `
-            <button class="btn-ghost" style="font-size:11px;padding:5px 10px;color:#f59e0b;border-color:rgba(245,158,11,0.5);display:inline-flex;align-items:center;gap:4px" onclick="openGoogleKeyPrompt()" title="Enter your Google AI Studio / Gemini API Key for Google Flow & Veo 2">
+            <button class="btn-ghost" style="font-size:11px;padding:5px 10px;color:#f59e0b;border-color:rgba(245,158,11,0.5);display:inline-flex;align-items:center;gap:4px" onclick="openGoogleKeyPrompt()" title="Enter your Google AI Studio API Key for Google Flow & Veo 2">
               <i class="ti ti-key"></i> + Google Key
             </button>
           ` : `

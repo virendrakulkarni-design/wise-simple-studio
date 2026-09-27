@@ -114,8 +114,8 @@ function renderModelSelect() {
 const IMAGE_MODELS = [
   {
     id: 'flux-ipadapter',
-    label: 'Flux.1 + IP-Adapter (Replicate / True Character Sheet Lock)',
-    shortLabel: 'Flux IP-Adapter',
+    label: 'Flux.1 + IP-Adapter (Recommended / True Character Sheet Lock)',
+    shortLabel: 'Flux IP-Adapter (Recommended)',
     badge: 'Hardware Lock',
     desc: 'Direct neural reference conditioning via IP-Adapter. Injects character sheet face and body embeddings directly into diffusion cross-attention layers.',
     engine: 'replicate',
@@ -123,8 +123,8 @@ const IMAGE_MODELS = [
   },
   {
     id: 'flux',
-    label: 'Flux.1 Schnell (Recommended / Pixar 3D Quality)',
-    shortLabel: 'Flux.1 (Recommended)',
+    label: 'Flux.1 Schnell (Fast Standard 3D)',
+    shortLabel: 'Flux.1',
     badge: 'Free / SOTA',
     desc: 'Black Forest Labs 12B distilled transformer. Unmatched character detail, vibrant Disney/Pixar 3D animation, and prompt following.',
     engine: 'pollinations',
@@ -221,7 +221,7 @@ function openGoogleKeyPrompt() {
 }
 function setImageModel(modelId) {
   S.activeImageModel = modelId;
-  localStorage.setItem('active-image-model', modelId);
+  localStorage.setItem('ipadapter-active-image-model', modelId);
   const found = IMAGE_MODELS.find(m => m.id === modelId);
   if (found) {
     studioLog(`🎨 Switched visual image model to: ${found.label}`);
@@ -414,7 +414,7 @@ const S = {
   googleDriveFolderUrl: localStorage.getItem('gdrive-folder-url') || 'https://drive.google.com/drive/folders/1t_SvBfCFwnGEcypTrV0gHBEHrDHOG-FY?usp=sharing',
   availableModels: [...DEFAULT_GROQ_MODELS],
   activeModel: localStorage.getItem('active-model') || 'llama-3.3-70b-versatile',
-  activeImageModel: localStorage.getItem('active-image-model') || 'flux',
+  activeImageModel: localStorage.getItem('ipadapter-active-image-model') || 'flux-ipadapter',
   activeVideoEngine: localStorage.getItem('active-video-engine') || 'nanobanana-motion',
   modelsLoading: false,
   showSetup: false,
