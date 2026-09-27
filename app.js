@@ -315,32 +315,51 @@ const STUDIO_STYLES = {
   kids3d: {
     label: '3D Kids Animation (Pixar/Disney)',
     icon: 'ti-sparkles',
-    desc: 'Vibrant, colorful, expressive characters, whimsical lighting, joyful humor'
+    desc: 'Vibrant, colorful, expressive characters, whimsical lighting, joyful humor',
+    imageRule: 'Cute stylized 3D cartoon animation style, Disney Pixar aesthetic, smooth cartoon shapes, vibrant cheerful colors, bright sunny lighting, NOT realistic fur, NOT photorealistic',
+    negRule: 'photorealistic, realistic animal, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters'
+  },
+  storybook: {
+    label: '2D Cartoon & Storybook',
+    icon: 'ti-book',
+    desc: 'Classic Disney 2D animation, hand-drawn cel art, clean outlines, storybook illustration',
+    imageRule: 'Classic 2D Disney cartoon cel animation style, clean hand-drawn cartoon outlines, flat vibrant colors, storybook illustration art, NOT 3D render, NOT realistic',
+    negRule: 'photorealistic, 3D CGI render, realistic fur, raytracing, dark, murky, mutant, deformed, fused bodies, 4 legs on one body'
   },
   cinematic: {
     label: 'Cinematic Live Action',
     icon: 'ti-movie',
-    desc: 'Photorealistic, 35mm film look, dramatic lighting and natural depth of field'
+    desc: 'Photorealistic, 35mm film look, dramatic lighting and natural depth of field',
+    imageRule: 'Cinematic movie still, photorealistic, 35mm film photography, natural cinematic lighting, masterpiece',
+    negRule: 'cartoon, 3D render, anime, illustration, drawing, oversaturated, deformed, bad anatomy'
   },
   anime: {
     label: 'Storybook & Anime',
     icon: 'ti-palette',
-    desc: 'Hand-drawn anime aesthetic, painterly backgrounds, warm emotions'
+    desc: 'Hand-drawn anime aesthetic, painterly backgrounds, warm emotions',
+    imageRule: 'Studio Ghibli anime film still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, painterly background',
+    negRule: 'photorealistic, 3D CGI render, western cartoon, ugly, deformed, text'
   },
   cyberpunk: {
     label: 'Sci-Fi / Cyberpunk',
     icon: 'ti-cpu',
-    desc: 'Futuristic, neon-lit, volumetric smoke, high-tech environments'
+    desc: 'Futuristic, neon-lit, volumetric smoke, high-tech environments',
+    imageRule: 'Cinematic sci-fi scene, futuristic cyberpunk aesthetic, neon glow, atmospheric lighting',
+    negRule: 'cartoon, hand-drawn, blurry, distorted'
   },
   claymation: {
     label: 'Claymation & Stop Motion',
     icon: 'ti-ball-tennis',
-    desc: 'Textured, tactile, handcrafted character models and whimsical sets'
+    desc: 'Textured, tactile, handcrafted character models and whimsical sets',
+    imageRule: 'Aardman claymation stop-motion animation film still, handcrafted sculpted clay character, tactile studio lighting',
+    negRule: 'photorealistic, 2D drawing, CGI, distorted'
   },
   vintage: {
     label: 'Vintage 1960s Film',
     icon: 'ti-camera',
-    desc: 'Warm grain, technicolor hues, nostalgic retro cinema tone'
+    desc: 'Warm grain, technicolor hues, nostalgic retro cinema tone',
+    imageRule: 'Vintage 1960s Technicolor film still, warm authentic film grain, classic cinema palette',
+    negRule: 'modern digital render, 3D CGI, anime, cartoon'
   }
 };
 
@@ -375,6 +394,7 @@ const S = {
   studioDuration: '420s',
   studioAspect: '16:9',
   studioNumScenes: 12,
+  studioCustomScenes: 6,
   studioScript: null,
   studioPrompts: [],
   studioCharacters: [],
@@ -1261,6 +1281,8 @@ function saveStudioState() {
       studioTopic: S.studioTopic,
       studioStyle: S.studioStyle,
       studioDuration: S.studioDuration,
+      studioCustomScenes: S.studioCustomScenes,
+      studioNumScenes: S.studioNumScenes,
       studioAspect: S.studioAspect,
       studioScript: S.studioScript,
       studioPrompts: S.studioPrompts,
@@ -1448,12 +1470,23 @@ async function callGroq(prompt, maxTokens = 3000) {
   return JSON.parse(clean);
 }
 
+function setCustomSceneCount(n) {
+  const val = Math.max(1, Math.min(24, parseInt(n) || 4));
+  S.studioCustomScenes = val;
+  S.studioNumScenes = val;
+  S.studioDuration = 'custom';
+  saveStudioState();
+  render();
+}
+
 // ── Step 0 -> Step 1: Script Generation ───────────────────────────────
 async function generateStudioScript() {
   if (!S.apiKey) { S.showSetup = true; render(); return; }
   if (!S.studioTopic.trim()) { S.studioError = 'Enter a story concept first.'; render(); return; }
 
-  const numScenes = STUDIO_DURATIONS.find(d => d.value === S.studioDuration)?.scenes || 4;
+  const numScenes = S.studioDuration === 'custom'
+    ? Math.max(1, Math.min(24, S.studioCustomScenes || 6))
+    : (STUDIO_DURATIONS.find(d => d.value === S.studioDuration)?.scenes || 4);
   S.studioNumScenes = numScenes;
   S.studioLoading = true;
   S.studioError = '';
@@ -1462,14 +1495,18 @@ async function generateStudioScript() {
   render();
 
   const styleInfo = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
-  const isKids = S.studioStyle === 'kids3d' || S.studioStyle === 'anime' || S.studioDuration === '420s' || S.studioTopic.toLowerCase().includes('kids');
+  const isKids = S.studioStyle === 'kids3d' || S.studioStyle === 'storybook' || S.studioStyle === 'anime' || S.studioDuration === '420s' || S.studioTopic.toLowerCase().includes('kids');
+
+  const targetDurationDesc = S.studioDuration === 'custom'
+    ? `${numScenes * 25} seconds (${numScenes} custom scenes)`
+    : (S.studioDuration === '420s' ? '7 minutes full episodic special' : S.studioDuration.replace('s',' seconds'));
 
   const prompt = `You are a world-class children's storyteller, animation director, and screenwriter specializing in Pixar and Disney-quality animated videos.
 Create a detailed, extremely engaging, and captivating scene-by-scene script.
 
 STORY CONCEPT: "${S.studioTopic.trim()}"
 VISUAL STYLE: ${styleInfo.label} — ${styleInfo.desc}
-TARGET DURATION: ${S.studioDuration === '420s' ? '7 minutes full episodic special' : S.studioDuration.replace('s',' seconds')}
+TARGET DURATION: ${targetDurationDesc}
 NUMBER OF SCENES: exactly ${numScenes}
 ASPECT RATIO: ${S.studioAspect}
 ${isKids ? 'TARGET AUDIENCE: 5 to 8 years old kids. Tone must be lively, funny, colorful, full of laughter and wonder. Include comical physical gags, entertaining sound effect cues [BOING!], [ZOOM!], [CRUNCH!], [SNORE!], enthusiastic narrator voice, relatable character dialogue, suspenseful twists, and an empowering moral lesson (being clever, disciplined, humble and kind).' : ''}
@@ -1548,7 +1585,7 @@ function generateFallbackPrompts(script) {
     const action = s.visualAction || s.description || s.narration || '';
     const chars = Array.isArray(s.characters) ? s.characters.join(', ') : (s.characters || mainChar || '');
 
-    const veoPrompt = `${styleDesc}, ${title}. ${action}. ${chars ? 'Characters: ' + chars + '. ' : ''}Setting: ${env}. Lighting: ${lighting}. Camera: ${camera}, smooth cinematic movement, cute stylized 3D animation, vibrant cheerful colors, 8k render, Disney Pixar animation feature film quality.`;
+    const veoPrompt = `${styleDesc}, ${title}. ${action}. ${chars ? 'Characters: ' + chars + '. ' : ''}Setting: ${env}. Lighting: ${lighting}. Camera: ${camera}, smooth cinematic movement, vibrant feature film animation quality.`;
 
     const negativePrompt = 'blurry, distorted, grainy, low resolution, ugly, duplicate, mutilated, watermark, bad anatomy, out of frame, text artifacts';
     const cameraMove = s.camera || 'Smooth cinematic push-in';
@@ -1741,7 +1778,7 @@ function getCharacterReferenceUrl(char) {
   return '';
 }
 
-function getCharacterVisualTraits(c) {
+function getCharacterVisualTraits(c, compact = false) {
   if (!c) return '';
   const desc = (c.description || '')
     .replace(/uploaded\s+character:?\s*[^,;()]+(\([^)]+\))?/gi, '')
@@ -1755,52 +1792,65 @@ function getCharacterVisualTraits(c) {
   const raw = [desc, promptPart].filter(Boolean).join(', ');
   const lower = ((c.name || '') + ' ' + raw).toLowerCase();
 
-  // 1. Leo the Cuddly Lion Cub
+  // Multi-character compact mode (10-14 words per character, no style repetition)
+  if (compact) {
+    if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
+      return 'a cute golden baby lion cub with small brown tuft on head and cream muzzle';
+    }
+    if (lower.includes('ella') || lower.includes('elephant')) {
+      return 'a friendly light-blue baby elephant with curved trunk and large floppy ears';
+    }
+    if (lower.includes('owl')) {
+      return 'a small round brown feathered owl with big golden eyes';
+    }
+    if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
+      return 'a playful little brown monkey with peach face, holding a yellow banana';
+    }
+    if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
+      return 'a cute green tortoise with jade shell and bright orange neck bandana';
+    }
+    if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
+      return 'an athletic golden hare rabbit wearing a red racing jersey #1';
+    }
+    return `a cute cartoon ${c.name}`;
+  }
+
+  // Single character detailed traits (species and visual cues only, no style repetition)
   if (lower.includes('leo') || (lower.includes('lion') && (lower.includes('cub') || lower.includes('cuddly') || lower.includes('baby') || lower.includes('little')))) {
-    return 'cute stylized 3D Disney Pixar baby lion cub named Leo, adorable cuddly little lion cub with large expressive round amber eyes, soft golden-amber fur, cream muzzle and belly, tiny rounded cub ears, kitten-like paws, sweet innocent smile, small tuft of hair on head, smooth cub neck with NO adult mane, baby animal';
+    return 'cute golden baby lion cub, small brown tuft on head, cream muzzle and belly, big round cartoon eyes, sweet innocent smile';
   }
-  // 2. Ella the Friendly Blue Elephant
   if (lower.includes('ella') || lower.includes('elephant')) {
-    return 'cute stylized 3D Disney Pixar baby elephant animal named Ella, soft pastel sky-blue skin, pink blush on cheeks, very large floppy ears with pale pink inner ear, cute little curved trunk lifted happily, large cheerful dark cartoon eyes, sweet friendly smile, four-legged cartoon animal, NOT a human, NOT a girl';
+    return 'friendly light-blue baby elephant, curved trunk, large floppy ears with pink inside, sweet friendly smile';
   }
-  // 3. The Little Owl
   if (lower.includes('owl')) {
-    return 'cute small round 3D Disney Pixar cartoon barn owl, large round luminous golden-amber eyes, cream heart-shaped facial plumage, soft fluffy brown and cream speckled feathers, tiny curved yellow beak, small feathered wings';
+    return 'small round brown feathered owl perched on a branch, cream heart-shaped face plumage, big golden eyes';
   }
-  // 4. Mischievous Monkey / Milo
   if (lower.includes('monkey') || lower.includes('milo') || lower.includes('chimp')) {
-    return 'cute playful 3D Disney Pixar cartoon baby monkey, rich warm chocolate-brown fur, light cream-colored peach face and tummy, large round ears sticking out, wide cheerful toothy grin, long curly tail, holding yellow banana, NOT green';
+    return 'playful little brown monkey, peach face and tummy, round ears, long tail, holding a yellow banana';
   }
-  // 5. Toby the Tortoise
   if (lower.includes('toby') || lower.includes('tortoise') || lower.includes('turtle')) {
-    return 'cute stylized 3D green tortoise with glossy jade-green dome shell with glowing amber-orange hexagonal patterns, bright orange neck bandana scarf, big emerald-green eyes, warm friendly smile';
+    return 'cute green tortoise, glossy jade-green dome shell, bright orange neck bandana scarf, big emerald eyes';
   }
-  // 6. Harry the Hare
   if (lower.includes('harry') || lower.includes('hare') || lower.includes('rabbit') || lower.includes('bunny')) {
-    return 'tall athletic 3D hare rabbit with honey-golden fur, long floppy ears pink inside, wearing bright red athletic racing tank jersey with white number 1, white wristbands, sneakers, cocky toothy smirk';
+    return 'tall athletic golden hare rabbit, long ears, bright red athletic racing tank jersey #1, toothy smirk';
   }
 
   if (raw && raw.length > 5 && !raw.startsWith('(')) {
-    return `cute stylized 3D Disney Pixar cartoon character, ${raw.substring(0, 180)}`;
+    return `cute cartoon character, ${raw.substring(0, 120)}`;
   }
-  return `cute stylized 3D Disney Pixar cartoon ${c.name}, large expressive round eyes, friendly warm smile, vibrant colors`;
+  return `cute cartoon ${c.name}, big expressive cartoon eyes, friendly warm smile`;
 }
 
-function buildSceneVisualPrompt(idx, assignedChars) {
+function buildSceneVisualPrompt(idx, assignedChars, targetModel) {
+  const modelId = targetModel || S.activeImageModel || 'flux';
   const promptData = S.studioPrompts?.[idx];
   const sceneData = S.studioScript?.scenes?.[idx];
   const sceneChars = (assignedChars && assignedChars.length > 0) ? assignedChars : (S.studioCharacters?.length ? [S.studioCharacters[0]] : []);
   const isMultiChar = sceneChars.length > 1;
 
-  const stylePrefix = S.studioStyle === 'anime'
-    ? 'Studio Ghibli anime movie still, beautiful hand-drawn anime aesthetic, vibrant colorful lighting, masterpiece'
-    : (S.studioStyle === 'claymation'
-      ? 'Aardman claymation animation film still, stop-motion crafted clay character, warm studio lighting'
-      : (S.studioStyle === 'comic'
-        ? 'Marvel graphic novel film still, vibrant dynamic comic illustration, detailed ink and cel shading'
-        : (S.studioStyle === 'realistic'
-          ? 'Cinematic movie still, photorealistic, natural cinematic lighting, 8k render'
-          : '3D Disney Pixar animated movie scene, cute stylized 3D animation, vibrant cheerful colors, bright sunny lighting, 8k Pixar render')));
+  const styleObj = STUDIO_STYLES[S.studioStyle] || STUDIO_STYLES.kids3d;
+  const styleRule = styleObj.imageRule || 'Cute stylized 3D cartoon animation style, Disney Pixar aesthetic, smooth cartoon shapes, vibrant cheerful colors, bright sunny lighting, NOT realistic fur, NOT photorealistic';
+  let negPrompt = styleObj.negRule || 'photorealistic, realistic animal, real animal photography, national geographic, dark, horror, mutated, fused bodies, 4 legs on one body, two bodies one face, bad anatomy, duplicate characters';
 
   const rawAction = promptData?.veoPrompt || sceneData?.description || sceneData?.title || '';
   const cleanAction = rawAction
@@ -1814,34 +1864,48 @@ function buildSceneVisualPrompt(idx, assignedChars) {
     .trim();
 
   let prompt = '';
-  let negPrompt = 'photorealistic, realistic, real animal, wildlife photography, national geographic, dark, gloomy, murky, silhouette, muddy, swamp, horror, scary, sinister, mutated, deformed, ugly, bad anatomy, text, watermark, logo, split screen, multi-panel, character sheet, turnaround, model sheet';
   let refImage = '';
-
-  const allNamesAndTraits = sceneChars.map(c => `${c.name} ${c.description || ''}`).join(' ').toLowerCase();
-
-  if (allNamesAndTraits.includes('leo') || allNamesAndTraits.includes('lion') || allNamesAndTraits.includes('cub')) {
-    negPrompt += ', adult lion, male lion, full mane, giant mane, dark mane, realistic lion, scary predator, ferocious';
-  }
-  if (allNamesAndTraits.includes('ella') || allNamesAndTraits.includes('elephant')) {
-    negPrompt += ', human, girl, female child, woman, people, person, human face, dress, teddy bear, plush toy, doll, brown bear';
-  }
-  if (allNamesAndTraits.includes('monkey') || allNamesAndTraits.includes('milo')) {
-    negPrompt += ', green fur, green skin, alien, reptile, monster, scary ape, photorealistic monkey';
-  }
-  if (allNamesAndTraits.includes('owl')) {
-    negPrompt += ', human, girl, child, realistic eagle, hawk, terrifying bird';
-  }
+  const allNames = sceneChars.map(c => c.name).join(' & ');
 
   if (isMultiChar) {
-    const names = sceneChars.map(c => c.name).join(' & ');
-    const charClauses = sceneChars.map((c, i) => `Character ${i + 1} (${c.name}): ${getCharacterVisualTraits(c)}`).join('. ');
-    prompt = `${stylePrefix}. Scene featuring ${sceneChars.length} distinct characters together: ${names}. ${charClauses}. Action: ${cleanAction.substring(0, 200)}. All ${sceneChars.length} characters visible together in frame in full view, wide cinematic camera angle, 3D Disney Pixar animated movie still, exact character designs matching character sheets.`;
-    negPrompt += ', single character only, solo, lonely, alone, missing other characters, one character only, duplicate characters';
-    refImage = '';
+    // Spatial positioning prevents diffusion models from fusing characters into one mutated body
+    const positions = ['on the left', 'in the center', 'on the right', 'perched on a branch above', 'standing nearby', 'in the foreground'];
+    const spatialClauses = sceneChars.map((c, i) => {
+      const pos = positions[i] || `friend ${i + 1}`;
+      return `${pos} is ${c.name} (${getCharacterVisualTraits(c, true)})`;
+    }).join('; ');
+
+    if (modelId === 'flux') {
+      // Flux T5-XXL: Natural descriptive sentence with explicit spatial layout and species separation
+      prompt = `${styleRule}. In this scene: ${cleanAction ? cleanAction.substring(0, 100) + '. ' : ''}Featuring ${sceneChars.length} distinct cartoon friends together: ${spatialClauses}. All ${sceneChars.length} distinct characters clearly visible in full view (${allNames}), vibrant cartoon illustration, NOT fused bodies, NOT realistic fur.`;
+    } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
+      // CLIP 77-token budget: ultra-concise
+      const shortList = sceneChars.map(c => `${c.name}: ${getCharacterVisualTraits(c, true)}`).join(', ');
+      prompt = `${styleRule}. ${allNames} together: ${shortList}. ${cleanAction.substring(0, 60)}. Full view, clean cartoon lines.`;
+    } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
+      // Imagen 3: concise natural scene description (< 400 chars)
+      prompt = `${styleRule}. Scene: ${cleanAction.substring(0, 80)}. Characters together: ${spatialClauses}. Cinematic wide shot.`;
+    } else {
+      prompt = `${styleRule}. Animated scene: ${cleanAction ? cleanAction.substring(0, 90) + '. ' : ''}Featuring ${sceneChars.length} distinct cartoon characters: ${spatialClauses}. All characters visible in full view, bright cheerful colors.`;
+    }
+
+    negPrompt += ', single character only, solo, lonely, alone, missing other characters, one character only, duplicate characters, two bodies one face, 4 legs on one body, fused body';
+    refImage = ''; // Never pass single-character reference to multi-character scene to avoid visual takeover
   } else {
+    // Single character scene
     const c = sceneChars[0];
-    const traits = getCharacterVisualTraits(c);
-    prompt = `${stylePrefix}. Main character in scene: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 220)}. 3D Disney Pixar animated movie still, cute stylized cartoon character, bright cheerful lighting, exact character design matching character sheet.`;
+    const traits = getCharacterVisualTraits(c, false);
+
+    if (modelId === 'flux') {
+      prompt = `${styleRule}. Main character: ${c.name} (${traits}). Action: ${cleanAction ? cleanAction.substring(0, 140) + '.' : ''} Full character view, clean cartoon outlines, bright cheerful lighting, storybook illustration, NOT realistic fur.`;
+    } else if (modelId === 'turbo' || modelId === 'z-image-turbo' || modelId === 'sana') {
+      prompt = `${styleRule}, ${c.name} (${traits}), ${cleanAction.substring(0, 80)}, cartoon cel animation, bright colors`;
+    } else if (modelId === 'google-flow' || modelId === 'google-imagen') {
+      prompt = `${styleRule}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 120)}. Studio animated movie still.`;
+    } else {
+      prompt = `${styleRule}. Character: ${c.name} (${traits}). Action: ${cleanAction.substring(0, 140)}. Vibrant cartoon animation still, clean outlines.`;
+    }
+
     refImage = getCharacterReferenceUrl(c);
   }
 
@@ -2529,7 +2593,9 @@ async function generateStoryboardImage(idx) {
     return;
   }
 
-  const { sceneChars, prompt: scenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars);
+  const imgModelObj = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
+  const modelParam = imgModelObj?.param || S.activeImageModel || 'flux';
+  const { sceneChars, prompt: scenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars, modelParam);
   const primaryChar = sceneChars[0];
   const charNames = sceneChars.map(c => c.name).join(' & ');
 
@@ -2549,8 +2615,6 @@ async function generateStoryboardImage(idx) {
   render();
 
   try {
-    const imgModelObj = (typeof IMAGE_MODELS !== 'undefined' ? IMAGE_MODELS.find(m => m.id === S.activeImageModel) : null);
-    const modelParam = imgModelObj?.param || S.activeImageModel || 'flux';
     let imageUrl = null;
 
     const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
@@ -2793,7 +2857,7 @@ async function generateStudioClip(idx) {
       if (imgModel?.param) modelParam = (imgModel.param === 'nano-banana') ? 'flux' : imgModel.param;
     }
 
-    const { sceneChars, prompt: fullScenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars);
+    const { sceneChars, prompt: fullScenePrompt, negPrompt, refImage } = buildSceneVisualPrompt(idx, assignedChars, modelParam);
     const primaryChar = sceneChars[0];
     const charNames = sceneChars.map(c => c.name).join(' & ');
     const charBaseSeed = primaryChar?.seed || getCharacterSeed(primaryChar);
@@ -3934,7 +3998,23 @@ function buildStudio() {
 
     const durationBtns = STUDIO_DURATIONS.map(d => `
       <button class="pill-btn ${S.studioDuration === d.value ? 'active' : ''}" onclick="S.studioDuration='${d.value}';render()">${d.label} <span style="opacity:0.6;font-size:10px">(${d.scenes} scenes)</span></button>
-    `).join('');
+    `).join('') + `
+      <button class="pill-btn ${S.studioDuration === 'custom' ? 'active' : ''}" onclick="S.studioDuration='custom';S.studioNumScenes=S.studioCustomScenes||6;render()"><i class="ti ti-adjustments"></i> Custom (${S.studioCustomScenes || 6} scenes)</button>
+    `;
+
+    const customScenesBox = S.studioDuration === 'custom' ? `
+      <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px 14px;background:var(--surface-2);border-radius:8px;border:1px solid rgba(99,102,241,0.35);max-width:460px">
+        <span style="font-size:12px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px">
+          <i class="ti ti-movie" style="color:var(--brand)"></i> Choose Number of Scenes:
+        </span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="btn-ghost" type="button" style="padding:2px 8px;font-size:14px;min-width:28px" onclick="setCustomSceneCount((S.studioCustomScenes || 6) - 1)" ${(S.studioCustomScenes || 6) <= 1 ? 'disabled' : ''}>-</button>
+          <input type="number" min="1" max="24" value="${S.studioCustomScenes || 6}" onchange="setCustomSceneCount(this.value)" style="width:55px;text-align:center;padding:4px 6px;font-size:13px;font-weight:700;border-radius:6px;background:var(--surface-1);border:1px solid var(--border-strong);color:var(--text-primary)">
+          <button class="btn-ghost" type="button" style="padding:2px 8px;font-size:14px;min-width:28px" onclick="setCustomSceneCount((S.studioCustomScenes || 6) + 1)" ${(S.studioCustomScenes || 6) >= 24 ? 'disabled' : ''}>+</button>
+        </div>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:auto">~${(S.studioCustomScenes || 6) * 15}s total</span>
+      </div>
+    ` : '';
 
     const aspectBtns = ['16:9','9:16','1:1'].map(a => `
       <button class="pill-btn ${S.studioAspect === a ? 'active' : ''}" onclick="S.studioAspect='${a}';render()">${a}</button>
@@ -3948,8 +4028,9 @@ function buildStudio() {
         <div class="section-label" style="margin-top:18px;margin-bottom:10px">Visual Style</div>
         <div class="studio-style-grid">${styleCards}</div>
 
-        <div class="section-label" style="margin-top:18px;margin-bottom:10px">Target Duration</div>
+        <div class="section-label" style="margin-top:18px;margin-bottom:10px">Target Duration & Scene Count</div>
         <div class="filter-pills">${durationBtns}</div>
+        ${customScenesBox}
 
         <div class="section-label" style="margin-top:18px;margin-bottom:10px">Aspect Ratio</div>
         <div class="filter-pills">${aspectBtns}</div>
@@ -4739,7 +4820,7 @@ function render() {
         <div class="header-left">
           <div class="logo-mark"><i class="ti ti-movie"></i></div>
           <div>
-            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.2</span></div>
+            <div class="logo-name" style="display:flex;align-items:center;gap:6px">Wise Simple Studio <span style="font-size:10px;font-weight:700;color:var(--brand);background:rgba(99,102,241,0.14);border:1px solid rgba(99,102,241,0.3);padding:1px 6px;border-radius:10px">v4.7.3</span></div>
             <div class="logo-sub">AI Video & Animated Story Creator</div>
           </div>
         </div>
