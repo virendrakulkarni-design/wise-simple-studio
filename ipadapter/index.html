@@ -6,12 +6,12 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Wise Simple Studio — AI Video & Story Studio</title>
+  <title>Wise Simple Studio — Approach B: Replicate IP-Adapter</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
-  <link rel="stylesheet" href="styles.css?v=4.7.5" />
+  <link rel="stylesheet" href="styles.css?v=4.8.0-ipadapter" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     /* Top Endpoint Switcher Bar */
@@ -45,8 +45,8 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+      background: #fbbf24;
+      box-shadow: 0 0 10px rgba(251, 191, 36, 0.8);
       animation: pulseDot 2s infinite ease-in-out;
     }
     @keyframes pulseDot {
@@ -68,9 +68,9 @@
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      background: rgba(59, 130, 246, 0.18);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.35);
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
     }
     .endpoint-nav {
       display: flex;
@@ -99,10 +99,10 @@
       border-color: rgba(255, 255, 255, 0.2);
     }
     .endpoint-btn.active {
-      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      background: linear-gradient(135deg, #d97706 0%, #ea580c 100%);
       color: #ffffff;
-      border-color: rgba(99, 102, 241, 0.6);
-      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+      border-color: rgba(234, 88, 12, 0.6);
+      box-shadow: 0 2px 10px rgba(234, 88, 12, 0.4);
     }
     @media (max-width: 768px) {
       .endpoint-switcher {
@@ -126,16 +126,16 @@
       <div class="endpoint-left">
         <span class="endpoint-pulse"></span>
         <span class="endpoint-label">Active Endpoint:</span>
-        <span class="endpoint-badge"><i class="ti ti-bolt"></i> Main: Standard Flux Pipeline</span>
+        <span class="endpoint-badge"><i class="ti ti-cpu"></i> Approach B: Replicate IP-Adapter</span>
       </div>
       <div class="endpoint-nav">
-        <a href="./" class="endpoint-btn active" title="Main Standard Flux Pipeline">
+        <a href="../" class="endpoint-btn" title="Main Standard Flux Pipeline">
           <i class="ti ti-bolt"></i> Main
         </a>
-        <a href="./vision/" class="endpoint-btn" title="Approach A: Multimodal Character DNA extraction via Gemini 1.5 Flash Vision">
+        <a href="../vision/" class="endpoint-btn" title="Approach A: Multimodal Character DNA extraction via Gemini 1.5 Flash Vision">
           <i class="ti ti-scan"></i> Approach A (Vision DNA)
         </a>
-        <a href="./ipadapter/" class="endpoint-btn" title="Approach B: Hardware Character Conditioning via Replicate IP-Adapter">
+        <a href="./" class="endpoint-btn active" title="Approach B: Hardware Character Conditioning via Replicate IP-Adapter">
           <i class="ti ti-cpu"></i> Approach B (IP-Adapter)
         </a>
       </div>
@@ -143,6 +143,6 @@
   </nav>
 
   <div id="app"></div>
-  <script src="app.js?v=4.7.5"></script>
+  <script src="app.js?v=4.8.0-ipadapter"></script>
 </body>
 </html>
